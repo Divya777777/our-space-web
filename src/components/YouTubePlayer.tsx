@@ -48,7 +48,7 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow }
   const player = useRef<YTPlayer | null>(null);
   const [ready, setReady] = useState(false);
   const ev = useRef(events); useEffect(() => { ev.current = events; });
-  const st = useRef({ expected: null as number | null, quietUntil: 0, lastTick: null as null | { t: number; at: number; st: number }, cued: '', lastTitle: '' });
+  const st = useRef({ off: 0, expected: null as number | null, quietUntil: 0, lastTick: null as null | { t: number; at: number; st: number }, cued: '', lastTitle: '' });
   const intent = useRef<{ playing: boolean; position: number; at: number } | null>(null);
   const initial = useRef(playback);
 
@@ -120,8 +120,10 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow }
       s.cued = '';
       if (isMirror) {
         // Let a jump settle (buffering) before measuring again, and land slightly ahead to cover the buffering time.
+        // Only jump when it's clearly off twice in a row; every jump makes YouTube buffer (a black picture).
         if (Date.now() < s.quietUntil || ps === 3) { if (playing && ps !== 1 && ps !== 3) p.playVideo(); return; }
-        if (Math.abs(p.getCurrentTime() - pos) > 0.6) { s.quietUntil = Date.now() + 2500; p.seekTo(pos + (playing ? 0.6 : 0), true); }
+        if (Math.abs(p.getCurrentTime() - pos) > 1.5) { s.off = (s.off || 0) + 1; if (s.off >= 2) { s.off = 0; s.quietUntil = Date.now() + 6000; p.seekTo(pos + (playing ? 1 : 0), true); } }
+        else s.off = 0;
       } else if (Math.abs(p.getCurrentTime() - pos) > 2) { s.quietUntil = Date.now() + 1200; p.seekTo(pos, true); }
       if (playing) { if (ps !== 1 && ps !== 3) { s.quietUntil = Date.now() + 1200; p.playVideo(); } }
       else if (ps === 1 || ps === 3) { s.quietUntil = Date.now() + 1200; p.pauseVideo(); }

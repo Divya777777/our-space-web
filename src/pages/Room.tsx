@@ -120,14 +120,16 @@ export default function RoomPage() {
 
   const playerEl = gate.playback ? <YouTubePlayer key={code} playback={gate.playback} volume={room.volume ?? 100} events={{
           onTitle: (id, t) => { if (id === pb?.videoId) setTitle(t); },
-          onPosition: s => { position.current = s; heard.current = { t: s, at: Date.now() }; },
+          // Note when the time last moved: in a hidden tab YouTube reports less often, and a repeated old value
+          // must not look fresh (the floating copy would keep jumping back and show only black while buffering).
+          onPosition: s => { position.current = s; if (!heard.current || Math.abs(s - heard.current.t) > 0.01) heard.current = { t: s, at: Date.now() }; },
           onError: setPlayerError,
           onEnded: id => { const key = `${id}:${pb?.revision}`; if (ended.current === key || !room.queue?.length) return; ended.current = key; void space.queue(code, 'next', { from: id }).catch(() => { ended.current = ''; }); },
           onUserControl: (action, at) => { if (!pb) return; if (gate.waiting) { if (action === 'play') gate.join(); return; } void space.play(code, pb.videoId, action === 'seek' ? pb.playing : action === 'play', at).catch(fail); },
         }} /> : null;
   const floating = !!pip.slots && !!playerEl;
   // The floating window shows a muted copy that follows the main player (which keeps playing the sound here).
-  const mainTime = () => { const h = heard.current; if (!h || Date.now() - h.at > 4000) return null; return h.t + (gate.playback?.playing ? (Date.now() - h.at) / 1000 : 0); };
+  const mainTime = () => { const h = heard.current; if (!h) return null; const age = Date.now() - h.at; if (gate.playback?.playing && age > 3000) return null; return h.t + (gate.playback?.playing ? age / 1000 : 0); };
   const pipPlayer = floating && gate.playback ? <YouTubePlayer key={`pip-${code}`} playback={gate.playback} events={{}} follow={mainTime} /> : null;
   const popOut = () => void pip.open().then(ok => { if (!ok) toast('Your browser didn’t open the floating window. Try Chrome or Edge on a computer.', { tone: 'error' }); });
 
