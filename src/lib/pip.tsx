@@ -44,7 +44,9 @@ export function PipProvider({ children }: React.PropsWithChildren) {
   const resting = useRef(false);
   /** Opened by itself (you left the tab / app) → closes by itself when you come back, like the phone. */
   const auto = useRef(false);
-  const close = useCallback(() => { const w = win.current; win.current = null; auto.current = false; setSlots(null); try { w?.close(); } catch { /* gone */ } }, []);
+  /** The video area of the floating window: hidden while only a call is shown. */
+  const videoBox = useRef<HTMLElement | null>(null);
+  const close = useCallback(() => { const w = win.current; win.current = null; videoBox.current = null; auto.current = false; setSlots(null); try { w?.close(); } catch { /* gone */ } }, []);
   const open = useCallback(async (isAuto = false) => {
     const api = docPip(); if (!api) return false;
     if (isAuto && resting.current) return false;
@@ -61,10 +63,26 @@ export function PipProvider({ children }: React.PropsWithChildren) {
     const v = w.document.createElement('div'); v.className = 'pip-video';
     const c = w.document.createElement('div'); c.className = 'pip-call';
     root.append(v, c); w.document.body.append(root);
-    w.addEventListener('pagehide', () => { if (win.current === w) { win.current = null; setSlots(null); } });
-    setSlots({ video: v, call: c });
+    w.addEventListener('pagehide', () => { if (win.current === w) { win.current = null; videoBox.current = null; setSlots(null); } });
+    // YouTube refuses to play (error 153) when the page holding its player has no web address to send as the
+    // referrer, and the floating window is a blank page. So the video goes into a small page of our own site
+    // (same origin, so React can still draw into it) and YouTube sees our address as usual.
+    const frame = w.document.createElement('iframe');
+    frame.className = 'pip-frame'; frame.title = 'Video';
+    frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+    frame.src = `${import.meta.env.BASE_URL}pip-frame.html`;
+    v.append(frame);
+    videoBox.current = v; v.hidden = !wantsRef.current.video;
+    const ready = await new Promise<boolean>(resolve => { frame.addEventListener('load', () => resolve(true), { once: true }); setTimeout(() => resolve(false), 8000); });
+    const fd = frame.contentDocument;
+    if (!ready || !fd || win.current !== w) { if (win.current === w) close(); return false; }
+    copyStyles(document, fd);
+    fd.documentElement.classList.add('pip-doc', 'pip-frame-doc');
+    const slot = fd.createElement('div'); slot.className = 'pip-video-slot'; fd.body.append(slot);
+    setSlots({ video: slot, call: c });
     return true;
-  }, []);
+  }, [close]);
+  useEffect(() => { if (videoBox.current) videoBox.current.hidden = !wants.video; }, [slots, wants.video]);
 
   // Nothing left to show (video stopped and no call): close the floating window.
   useEffect(() => { if (slots && !wants.video && !wants.call) close(); }, [slots, wants.video, wants.call, close]);
