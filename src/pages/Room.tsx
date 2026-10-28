@@ -44,6 +44,8 @@ export default function RoomPage() {
   const [rename, setRename] = useState<string | null>(null);
   const [playerError, setPlayerError] = useState('');
   const position = useRef(0);
+  /** Main player's last reported time and when, so the floating copy can follow it closely. */
+  const heard = useRef<{ t: number; at: number } | null>(null);
   const ended = useRef('');
   const screen = useRef<HTMLDivElement>(null);
   const chat = useRoomChat(room);
@@ -66,12 +68,31 @@ export default function RoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
   useEffect(() => enterRoom(code), [code]);
+  // Leaving the room page tells the server; if nobody else has the room open, its video pauses for the room.
+  // (Switching tabs doesn't count: the video keeps playing in the background or the floating window.)
+  const apiRef = useRef(space.api);
+  useEffect(() => { apiRef.current = space.api; });
+  useEffect(() => () => { void apiRef.current(`/rooms/${code}/leave-view`, {}, 'POST').catch(() => {}); }, [code]);
   useEffect(() => { if (!problem) markRoomVisited(code); }, [code, problem]);
   const gate = useGatedPlayback(code, room?.playback);
   const pip = usePip();
   // Offer PiP while something is playing; once floating, keep it there even when paused.
   useWantPip('video', !!gate.playback && (gate.playback.playing || !!pip.slots));
   useEffect(() => { setPlayerError(''); }, [room?.playback?.videoId]);
+  // Press P to float the video. Browsers only open the floating window right after a click or key press on the
+  // page, so this is the quick way before switching to another app (a tab switch floats it by itself).
+  const hasVideo = !!gate.playback;
+  useEffect(() => {
+    if (!hasVideo || !pip.supported) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'p' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      e.preventDefault(); void pip.open();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [hasVideo, pip]);
   // Tell the browser what's playing (lock screen / media keys, and Chrome's automatic picture-in-picture).
   const playingNow = !!gate.playback?.playing;
   useEffect(() => {
@@ -99,12 +120,15 @@ export default function RoomPage() {
 
   const playerEl = gate.playback ? <YouTubePlayer key={code} playback={gate.playback} volume={room.volume ?? 100} events={{
           onTitle: (id, t) => { if (id === pb?.videoId) setTitle(t); },
-          onPosition: s => { position.current = s; },
+          onPosition: s => { position.current = s; heard.current = { t: s, at: Date.now() }; },
           onError: setPlayerError,
           onEnded: id => { const key = `${id}:${pb?.revision}`; if (ended.current === key || !room.queue?.length) return; ended.current = key; void space.queue(code, 'next', { from: id }).catch(() => { ended.current = ''; }); },
           onUserControl: (action, at) => { if (!pb) return; if (gate.waiting) { if (action === 'play') gate.join(); return; } void space.play(code, pb.videoId, action === 'seek' ? pb.playing : action === 'play', at).catch(fail); },
         }} /> : null;
   const floating = !!pip.slots && !!playerEl;
+  // The floating window shows a muted copy that follows the main player (which keeps playing the sound here).
+  const mainTime = () => { const h = heard.current; if (!h || Date.now() - h.at > 4000) return null; return h.t + (gate.playback?.playing ? (Date.now() - h.at) / 1000 : 0); };
+  const pipPlayer = floating && gate.playback ? <YouTubePlayer key={`pip-${code}`} playback={gate.playback} events={{}} follow={mainTime} /> : null;
   const popOut = () => void pip.open().then(ok => { if (!ok) toast('Your browser didn’t open the floating window. Try Chrome or Edge on a computer.', { tone: 'error' }); });
 
   const top = <div className="room-top">
@@ -127,7 +151,10 @@ export default function RoomPage() {
     {top}
     <section className="stage" aria-label="Watch together">
       <div className="screen" ref={screen}>
-        {gate.playback ? (floating ? <div className="screen-empty"><div className="col gap-16" style={{ alignItems: 'center' }}><Icon name="pip" size={40} /><p className="h3">Playing in a floating window</p><p className="muted small" style={{ maxWidth: 340, textAlign: 'center' }}>Use any other app — it stays on top. Everyone here still watches in sync.</p><Button variant="secondary" onClick={pip.close}>Bring it back here</Button></div></div> : playerEl) : <div className="screen-empty"><div className="col gap-16" style={{ alignItems: 'center' }}><Star size={48} glow /><p className="h2">What are we watching?</p><p className="muted small" style={{ maxWidth: 360 }}>Search below or paste a YouTube link. It plays for everyone here at the same moment.</p></div></div>}
+        {/* The player keeps its place in the page while the video floats (moving or re-wrapping it would reload it, and a
+            reloaded player can't start with sound by itself); the floating window shows a muted copy. */}
+        {gate.playback ? playerEl : <div className="screen-empty"><div className="col gap-16" style={{ alignItems: 'center' }}><Star size={48} glow /><p className="h2">What are we watching?</p><p className="muted small" style={{ maxWidth: 360 }}>Search below or paste a YouTube link. It plays for everyone here at the same moment.</p></div></div>}
+        {gate.playback && floating && <div className="screen-empty screen-over"><div className="col gap-16" style={{ alignItems: 'center' }}><Icon name="pip" size={40} /><p className="h3">Playing in a floating window</p><p className="muted small" style={{ maxWidth: 340, textAlign: 'center' }}>Use any other app — it stays on top. Everyone here still watches in sync.</p><Button variant="secondary" onClick={pip.close}>Bring it back here</Button></div></div>}
         {gate.waiting && <div className="gate"><div className="col gap-16" style={{ alignItems: 'center', textAlign: 'center' }}>
           <p className="h2">{pb?.updatedBy && pb.updatedBy !== space.user.id ? `${firstName(room.members.find(m => m.id === pb.updatedBy)?.name || 'Someone')} is playing something` : 'This room is playing'}</p>
           <Button icon="play" onClick={gate.join}>Join in</Button></div></div>}
@@ -139,11 +166,11 @@ export default function RoomPage() {
         <div className="now grow"><p className="small ellipsis" style={{ fontWeight: 600 }}>{title || 'Loading title…'}</p><p className="tiny muted ellipsis">{gate.waiting ? 'Paused for you' : pb.playing ? 'Playing for everyone' : 'Paused for everyone'}{room.queue?.length ? ` · ${room.queue.length} up next` : ''}</p></div>
         <Volume value={room.volume ?? 100} onChange={v => void space.setVolume(code, v).catch(fail)} />
         <IconButton icon="bookmark" label="Save this video to a playlist" onClick={() => setSave({ videoId: pb.videoId, title: title || 'YouTube video' })} />
-        {pip.supported && !floating && <IconButton icon="pip" label="Float the video in a small window" onClick={popOut} />}
+        {pip.supported && !floating && <IconButton icon="pip" label="Float the video in a small window (P)" onClick={popOut} />}
         <IconButton icon="expand" label="Full screen" onClick={() => void screen.current?.requestFullscreen?.().catch(() => {})} />
       </div>}
       {floating && pb && createPortal(<div className="pip-player">
-        {playerEl}
+        {pipPlayer}
         <div className="pip-controls">
           <IconButton size="sm" variant="accent" icon={gate.playback?.playing ? 'pause' : 'play'} label={gate.waiting ? 'Join in' : pb.playing ? 'Pause for everyone' : 'Play for everyone'} onClick={toggle} />
           <IconButton size="sm" icon="next" label="Skip to the next video" disabled={!room.queue?.length} onClick={next} />

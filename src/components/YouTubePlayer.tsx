@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Playback, positionNow } from '../lib/model';
 
 type YTPlayer = {
+  mute?(): void;
   getCurrentTime(): number; getPlayerState(): number; getVideoData(): { video_id: string; title: string };
   loadVideoById(o: { videoId: string; startSeconds?: number }): void; cueVideoById(o: { videoId: string; startSeconds?: number }): void;
   seekTo(s: number, allow: boolean): void; playVideo(): void; pauseVideo(): void; setVolume(v: number): void; destroy(): void;
@@ -34,7 +35,15 @@ export type PlayerEvents = {
   onUserControl?: (action: 'play' | 'pause' | 'seek', position: number) => void;
   onError?: (message: string) => void;
 };
-export default function YouTubePlayer({ playback, volume = 100, events }: { playback: Playback; volume?: number; events: PlayerEvents }) {
+/**
+ * `follow`: a silent copy that mirrors another player (the floating window). It starts muted, which browsers always
+ * allow without a click, has no YouTube controls, never reports taps to the room, and keeps itself within a fraction
+ * of a second of `follow()` (the main player's time). The main player keeps playing the sound in the room page, so
+ * opening or closing the floating window never pauses or reloads what you hear.
+ */
+export default function YouTubePlayer({ playback, volume = 100, events, follow }: { playback: Playback; volume?: number; events: PlayerEvents; follow?: () => number | null }) {
+  const mirror = useRef(follow); mirror.current = follow;
+  const isMirror = !!follow;
   const host = useRef<HTMLDivElement>(null);
   const player = useRef<YTPlayer | null>(null);
   const [ready, setReady] = useState(false);
@@ -57,11 +66,12 @@ export default function YouTubePlayer({ playback, volume = 100, events }: { play
       const start = initial.current;
       player.current = new YT.Player(el, {
         videoId: start.videoId, width: '100%', height: '100%',
-        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, origin: window.location.origin, start: Math.floor(positionNow(start)) },
+        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, origin: window.location.origin, start: Math.floor(mirror.current?.() ?? positionNow(start)), ...(isMirror ? { mute: 1, controls: 0, disablekb: 1, autoplay: start.playing ? 1 : 0 } : {}) },
         events: {
-          onReady: () => { if (!alive) return; setReady(true); reportTitle(); },
+          onReady: () => { if (!alive) return; if (isMirror) player.current?.mute?.(); setReady(true); reportTitle(); },
           onStateChange: (e: { data: number }) => {
             const p = player.current!; reportTitle();
+            if (isMirror) return; // the copy never speaks for the room
             if (e.data === 0) { ev.current.onEnded?.(p.getVideoData().video_id); return; }
             if (Date.now() < st.current.quietUntil) return;
             if (e.data === 2 && st.current.expected !== 2) { st.current.expected = 2; user('pause', p.getCurrentTime()); }
@@ -72,7 +82,7 @@ export default function YouTubePlayer({ playback, volume = 100, events }: { play
       });
       // Seek detection: YouTube has no seek event. Compare against the last settled sample, skipping buffering.
       timer = setInterval(() => {
-        const p = player.current; if (!p?.getCurrentTime) return;
+        const p = player.current; if (!p?.getCurrentTime || isMirror) return;
         const t = p.getCurrentTime(), n = Date.now(), s = p.getPlayerState?.() ?? -1, last = st.current.lastTick;
         if (s === 1 || s === 2) {
           if (last && n > st.current.quietUntil) { const el = last.st === 1 ? (n - last.at) / 1000 : 0; if (t < last.t - 1.5 || t > last.t + el + 2.5) { st.current.quietUntil = n + 1500; user('seek', t); } }
@@ -84,7 +94,7 @@ export default function YouTubePlayer({ playback, volume = 100, events }: { play
     return () => { alive = false; clearInterval(timer); try { player.current?.destroy(); } catch { /* gone */ } player.current = null; };
   }, []);
 
-  useEffect(() => { if (ready) player.current?.setVolume(Math.max(0, Math.min(100, volume))); }, [ready, volume]);
+  useEffect(() => { if (ready && !isMirror) player.current?.setVolume(Math.max(0, Math.min(100, volume))); }, [ready, volume, isMirror]);
 
   const { videoId, playing, position, updatedAt, revision } = playback;
   useEffect(() => {
@@ -98,7 +108,7 @@ export default function YouTubePlayer({ playback, volume = 100, events }: { play
         const expectedPos = mine.position + (mine.playing ? age / 1000 : 0);
         if ((state.playing === mine.playing && Math.abs(positionNow(state) - expectedPos) < 3) || age > 8000) intent.current = null; else return;
       }
-      const s = st.current; const pos = positionNow(state);
+      const s = st.current; const pos = (playing ? mirror.current?.() : null) ?? positionNow(state);
       s.expected = playing ? 1 : 2; s.lastTick = null;
       const id = p.getVideoData().video_id; const ps = p.getPlayerState?.() ?? -1;
       if (id !== videoId) {
@@ -108,12 +118,16 @@ export default function YouTubePlayer({ playback, volume = 100, events }: { play
       }
       if (!playing && (ps === -1 || ps === 5)) { if (s.cued !== videoId) { s.cued = videoId; p.cueVideoById({ videoId, startSeconds: pos }); } return; }
       s.cued = '';
-      if (Math.abs(p.getCurrentTime() - pos) > 2) { s.quietUntil = Date.now() + 1200; p.seekTo(pos, true); }
+      if (isMirror) {
+        // Let a jump settle (buffering) before measuring again, and land slightly ahead to cover the buffering time.
+        if (Date.now() < s.quietUntil || ps === 3) { if (playing && ps !== 1 && ps !== 3) p.playVideo(); return; }
+        if (Math.abs(p.getCurrentTime() - pos) > 0.6) { s.quietUntil = Date.now() + 2500; p.seekTo(pos + (playing ? 0.6 : 0), true); }
+      } else if (Math.abs(p.getCurrentTime() - pos) > 2) { s.quietUntil = Date.now() + 1200; p.seekTo(pos, true); }
       if (playing) { if (ps !== 1 && ps !== 3) { s.quietUntil = Date.now() + 1200; p.playVideo(); } }
       else if (ps === 1 || ps === 3) { s.quietUntil = Date.now() + 1200; p.pauseVideo(); }
     };
-    apply(); const t = setInterval(apply, 5000); return () => clearInterval(t);
-  }, [ready, videoId, playing, position, updatedAt, revision]);
+    apply(); const t = setInterval(apply, isMirror ? 1000 : 5000); return () => clearInterval(t);
+  }, [ready, videoId, playing, position, updatedAt, revision, isMirror]);
 
   return <div className="yt-host" ref={host} />;
 }
