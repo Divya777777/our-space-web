@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Room } from '../lib/model';
+import type { Receipts, Room } from '../lib/model';
 import { useSpace } from '../lib/space';
 import { useRoomChat } from '../lib/useRoomChat';
 import { ChatItem, fileUrl } from '../lib/chatStore';
@@ -12,6 +12,15 @@ const time = (t: number) => new Date(t).toLocaleTimeString([], { hour: 'numeric'
 const dayLabel = (t: number) => { const d = new Date(t); const today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1); return d.toDateString() === today.toDateString() ? 'Today' : d.toDateString() === y.toDateString() ? 'Yesterday' : d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }); };
 
 export type Chat = ReturnType<typeof useRoomChat>;
+type Status = 'sent' | 'delivered' | 'read';
+/** Like WhatsApp: one tick = reached the server, two grey = every other member has it, two blue = everyone has seen it. */
+function statusOf(id: number, others: string[], receipts: Receipts | undefined): Status {
+  if (!others.length || !receipts) return 'sent';
+  if (others.every(u => (receipts[u]?.r || 0) >= id)) return 'read';
+  if (others.every(u => (receipts[u]?.d || 0) >= id)) return 'delivered';
+  return 'sent';
+}
+const STATUS_LABEL: Record<Status, string> = { sent: 'Sent', delivered: 'Delivered', read: 'Seen' };
 export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; onReport: (userId: string, text: string) => void }) {
   const space = useSpace();
   const toast = useToast();
@@ -23,6 +32,15 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
   const fileInput = useRef<HTMLInputElement>(null);
   const items = chat.items.filter(i => !isBlockedId(blocked, i.from));
   // Keep the newest message in view inside the panel (never scroll the whole page).
+  // Seen ticks for the others: only while this tab is visible and focused.
+  const { markRead, cursor } = chat;
+  useEffect(() => {
+    const check = () => { if (chat.loaded && document.visibilityState === 'visible' && document.hasFocus()) markRead(); };
+    check();
+    window.addEventListener('focus', check); document.addEventListener('visibilitychange', check);
+    return () => { window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check); };
+  }, [chat.loaded, cursor, markRead]);
+  const others = room.members.map(m => m.id).filter(id => id !== space.user.id);
   useEffect(() => { const box = end.current?.closest('.side-body'); if (box && box.scrollHeight > box.clientHeight + 1) box.scrollTop = box.scrollHeight; }, [items.length]);
   const send = async () => { const t = text; if (!t.trim()) return; setText(''); try { await chat.sendText(t); } catch (e) { toast((e as Error).message || 'Message not sent.', { tone: 'error' }); } };
   const attach = async (file: File) => {
@@ -46,7 +64,7 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
         const showName = i.from !== space.user.id && (i.from !== lastFrom || showDay); lastFrom = i.from;
         return <div key={i.id} style={{ display: 'contents' }}>
           {showDay && <p className="tiny quiet" style={{ textAlign: 'center', margin: '10px 0 4px' }}>{day}</p>}
-          <Message item={i} mine={i.from === space.user.id} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)} />
+          <Message item={i} status={i.from === space.user.id && !i.pending && !i.failed && /^\d+$/.test(i.id) ? statusOf(Number(i.id), others, room.receipts) : null} mine={i.from === space.user.id} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)} />
         </div>;
       })}
       <div ref={end} />
@@ -65,7 +83,7 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
   </div>;
 }
 
-function Message({ item, mine, showName, onReport, onDismiss }: { item: ChatItem; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void }) {
+function Message({ item, status, mine, showName, onReport, onDismiss }: { item: ChatItem; status: Status | null; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void }) {
   const [url, setUrl] = useState('');
   useEffect(() => { if (item.file) void fileUrl(item.file.key).then(setUrl); }, [item.file]);
   return <div className={`msg ${mine ? 'me' : ''} ${item.pending ? 'pending' : ''} ${item.failed ? 'failed' : ''}`} onContextMenu={e => { if (!mine) { e.preventDefault(); onReport(); } }}>
@@ -73,6 +91,6 @@ function Message({ item, mine, showName, onReport, onDismiss }: { item: ChatItem
     {item.kind === 'image' && item.file ? (url ? <a href={url} target="_blank" rel="noreferrer"><img src={url} alt={item.file.name} style={item.file.w ? { aspectRatio: `${item.file.w} / ${item.file.h}` } : undefined} /></a> : <div className="skeleton" style={{ width: 220, height: 160 }} />)
       : item.kind === 'file' && item.file ? <a className="bubble row gap-8" href={url || undefined} download={item.file.name} style={{ color: 'inherit' }}><Icon name="file" size={18} /><span className="ellipsis" style={{ maxWidth: 200 }}>{item.file.name}</span><span className="tiny" style={{ opacity: .7 }}>{(item.file.size / 1e6).toFixed(1)} MB</span><Icon name="download" size={16} /></a>
         : <div className="bubble">{item.text}</div>}
-    <span className="tiny quiet" style={{ padding: '0 6px' }}>{item.failed ? <button className="rose" onClick={onDismiss}>Not sent · remove</button> : item.pending ? 'Sending…' : time(item.at)}</span>
+    <span className="tiny quiet" style={{ padding: '0 6px' }}>{item.failed ? <button className="rose" onClick={onDismiss}>Not sent · remove</button> : item.pending ? 'Sending…' : <span className="row" style={{ gap: 3, display: 'inline-flex', alignItems: 'center' }}>{time(item.at)}{status && <span title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} style={{ display: 'inline-flex', color: status === 'read' ? '#8EC5FF' : undefined }}><Icon name={status === 'sent' ? 'check' : 'checks'} size={14} stroke={2} /></span>}</span>}</span>
   </div>;
 }

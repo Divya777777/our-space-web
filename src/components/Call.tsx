@@ -2,6 +2,8 @@
 // signals, one RTCPeerConnection per other person, offers from the lower user ID, media state on a data channel).
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import { usePip, useWantPip } from '../lib/pip';
 import { useSpace } from '../lib/space';
 import { actionableSignals } from '../lib/callProtocol';
 import type { CallPeer, CallSignal } from '../lib/types';
@@ -299,6 +301,9 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   }
 
   const connected = phase === 'connected' || phase === 'reconnecting';
+  const pip = usePip();
+  useWantPip('call', !!call);
+  const inPip = !!pip.slots && !!call;
   const others = peerList.filter(p => p.state !== 'connecting' || p.stream);
   const group = (call?.members.length || 0) > 1 || others.length > 1;
   const clock = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
@@ -323,7 +328,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
           <div className="col gap-8" style={{ alignItems: 'center' }}><IconButton size="lg" icon={call.video ? 'video' : 'phone'} variant="mint" label="Answer" onClick={() => void accept()} /><span className="small muted">Answer</span></div></div>
       </div>
     </div>}
-    {call && phase !== 'incoming' && expanded && <div className="call-layer" role="dialog" aria-label={`Call · ${call.title}`}>
+    {call && phase !== 'incoming' && expanded && !inPip && <div className="call-layer" role="dialog" aria-label={`Call · ${call.title}`}>
       <div className="call-top">
         <IconButton icon="down" label="Back to the room, the call continues" onClick={() => setExpanded(false)} />
         <div className="grow"><p className="h3">{group ? call.title : others[0]?.name || call.title}</p><p className="small muted">{!group && others[0]?.muted && connected ? 'Muted · ' : ''}{status}</p></div>
@@ -333,10 +338,26 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       {local && !cameraOff && <div className="tile self-tile"><VideoEl stream={local} muted /><span className="name">You{muted && <Icon name="micOff" size={13} />}</span></div>}
       <div className="call-controls"><div className="glass">{controls}</div></div>
     </div>}
-    {call && phase !== 'incoming' && !expanded && <MiniCall others={others} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
+    {call && phase !== 'incoming' && !expanded && !inPip && <MiniCall others={others} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
       {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
       <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={() => finish()} />
     </>} />}
+    {inPip && call && createPortal(<div className="pip-callview">
+      {phase === 'incoming' ? <div className="pip-ring">
+        <Avatar name={call.starter.name} size={56} />
+        <div style={{ textAlign: 'center' }}><p className="h3 ellipsis">{call.title}</p><p className="tiny muted">{status}</p></div>
+        <div className="row gap-16"><IconButton icon="hangup" variant="end" label="Decline" onClick={() => finish(true)} /><IconButton icon={call.video ? 'video' : 'phone'} variant="mint" label="Answer" onClick={() => void accept()} /></div>
+      </div> : <>
+        <div className="pip-tiles">{(others.length ? others : call.members.map(m => ({ id: m.id, name: m.name, stream: null, cameraOff: true, muted: false, state: 'connecting' as const }))).slice(0, 4).map(p => <PipTile key={p.id} p={p} video={call.video} />)}
+          {local && !cameraOff && <div className="pip-self"><VideoEl stream={local} muted /></div>}</div>
+        <div className="pip-bar">
+          <span className="grow tiny ellipsis"><span className="live-dot" /> {status}</span>
+          {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
+          {connected && call.video && <IconButton size="sm" icon={cameraOff ? 'videoOff' : 'video'} variant={cameraOff ? 'on' : undefined} label={cameraOff ? 'Turn camera on' : 'Turn camera off'} disabled={busy} onClick={() => void toggleCamera()} />}
+          <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={() => finish()} />
+        </div>
+      </>}
+    </div>, pip.slots!.call)}
   </CallContext.Provider>;
 }
 
@@ -353,24 +374,33 @@ function PeerTile({ p, video }: { p: PeerView; video: boolean }) {
   const speaking = useSpeaking(p.stream, !p.muted);
   const showVideo = video && p.stream && !p.cameraOff && p.stream.getVideoTracks().length > 0;
   return <div className={`tile ${speaking ? 'speaking' : ''}`}>
-    {showVideo ? <VideoEl stream={p.stream!} muted /> : <div className="col gap-8" style={{ alignItems: 'center' }}><Avatar name={p.name} size={92} /><span className="small muted">{p.state === 'connected' ? (video ? 'Camera off' : 'On the call') : 'Connecting…'}</span></div>}
+    {showVideo ? <VideoEl stream={p.stream!} muted remote /> : <div className="col gap-8" style={{ alignItems: 'center' }}><Avatar name={p.name} size={92} /><span className="small muted">{p.state === 'connected' ? (video ? 'Camera off' : 'On the call') : 'Connecting…'}</span></div>}
     <span className="name">{p.muted && <Icon name="micOff" size={13} />}{firstName(p.name)}</span>
   </div>;
 }
 function MiniCall({ others, status, title, onOpen, controls }: { others: PeerView[]; status: string; title: string; onOpen: () => void; controls: React.ReactNode }) {
   const first = others.find(p => p.stream && !p.cameraOff && p.stream.getVideoTracks().length);
   return <div className="call-pill glass" style={first ? { flexDirection: 'column', alignItems: 'stretch', borderRadius: 24, padding: 8, width: 260 } : undefined}>
-    {first && <button className="tile" style={{ aspectRatio: '16 / 10', borderRadius: 18 }} onClick={onOpen} aria-label="Open the call"><VideoEl stream={first.stream!} muted /></button>}
+    {first && <button className="tile" style={{ aspectRatio: '16 / 10', borderRadius: 18 }} onClick={onOpen} aria-label="Open the call"><VideoEl stream={first.stream!} muted remote /></button>}
     <div className="row gap-8" style={first ? { padding: '4px 4px 0 8px' } : undefined}>
       <button className="grow row gap-8" onClick={onOpen} style={{ textAlign: 'left', minWidth: 0 }}><span className="live-dot" /><span className="col gap-4" style={{ minWidth: 0 }}><span className="small ellipsis" style={{ fontWeight: 600 }}>{title}</span><span className="tiny muted">{status}</span></span></button>
       {controls}
     </div>
   </div>;
 }
-function VideoEl({ stream, muted }: { stream: MediaStream; muted?: boolean }) {
+function VideoEl({ stream, muted, remote }: { stream: MediaStream; muted?: boolean; remote?: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
-  useEffect(() => { if (ref.current && ref.current.srcObject !== stream) ref.current.srcObject = stream; }, [stream]);
-  return <video ref={ref} autoPlay playsInline muted={muted} />;
+  useEffect(() => { if (ref.current && ref.current.srcObject !== stream) { ref.current.srcObject = stream; void ref.current.play().catch(() => {}); } }, [stream]);
+  // Safari: the other person's video floats by itself when you leave the tab.
+  return <video ref={ref} autoPlay playsInline muted={muted} data-remote={remote ? '' : undefined} {...(remote ? { autopictureinpicture: '' } : {})} />;
+}
+function PipTile({ p, video }: { p: PeerView; video: boolean }) {
+  const speaking = useSpeaking(p.stream, !p.muted);
+  const showVideo = video && p.stream && !p.cameraOff && p.stream.getVideoTracks().length > 0;
+  return <div className={`pip-tile ${speaking ? 'speaking' : ''}`}>
+    {showVideo ? <VideoEl stream={p.stream!} muted /> : <Avatar name={p.name} size={44} />}
+    <span className="name">{p.muted && <Icon name="micOff" size={11} />}{firstName(p.name)}</span>
+  </div>;
 }
 /** Remote voices play through hidden audio elements so they keep going when the call window is minimised. */
 function RemoteAudio({ stream }: { stream: MediaStream | null }) {

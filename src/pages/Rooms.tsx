@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useSpace } from '../lib/space';
 import { Button, Skeleton } from '../components/ui';
+import { EmptyState } from '../components/EmptyState';
 import { CreateRoomSheet, JoinRoomSheet, RoomCard } from '../components/RoomBits';
 
 export default function Rooms() {
@@ -15,7 +16,9 @@ export default function Rooms() {
     <div style={{ marginTop: 28 }}>
       {!space.synced ? <div className="posters">{[0, 1, 2].map(i => <Skeleton key={i} h={300} r={26} />)}</div>
         : space.rooms.length ? <div className="posters">{space.rooms.map(r => <RoomCard key={r.code} room={r} />)}</div>
-          : <div className="glass window col gap-16" style={{ padding: 40, alignItems: 'flex-start' }}><h2 className="h2">No rooms yet</h2><p className="muted">Create one, or join with a code someone sent you.</p><div className="row gap-8"><Button icon="plus" onClick={() => setSheet('create')}>Create a room</Button><Button variant="secondary" onClick={() => setSheet('join')}>Join with code</Button></div></div>}
+          : <EmptyState ghosts={['Movie night', 'Sunday songs', 'Long distance']} title={<>No rooms<br />yet</>}
+            body="A room is your private place to watch, call, chat and play with your people. Make one in a few seconds, or join one with the code someone sent you."
+            actions={<><Button icon="plus" onClick={() => setSheet('create')}>Create a room</Button><Button variant="secondary" icon="enter" onClick={() => setSheet('join')}>Join with code</Button></>} />}
     </div>
     {sheet === 'create' && <CreateRoomSheet onClose={() => setSheet(null)} />}
     {sheet === 'join' && <JoinRoomSheet onClose={() => setSheet(null)} />}

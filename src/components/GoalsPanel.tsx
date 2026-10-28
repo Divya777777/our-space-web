@@ -4,6 +4,7 @@ import { useSpace } from '../lib/space';
 import { Goal, GoalDraft, GoalsMonth, GoalsToday, TEMPLATES, done, liveGoals, localDay, monthKey, newDraft } from '../lib/goals';
 import { Button, IconButton, Notice, Segments, Sheet, Skeleton, useConfirm, useToast } from './ui';
 import { Icon, IconName } from './Icon';
+import { GetAppPrompt } from './GetApp';
 
 const fmt = (n: number) => Number(n).toLocaleString();
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -69,7 +70,6 @@ export function GoalsPanel({ code, version }: { code: string; version?: number }
       onRemove={async () => { if (await confirm({ title: `Remove “${g.name}”?`, body: 'It stops from today. Earlier days stay in your monthly record.', confirmLabel: 'Remove goal', danger: true })) { setData(d => d && { ...d, goals: d.goals.filter(x => x.id !== g.id) }); void api.remove(g.id, localDay()).catch(() => void load()); } }} />)}
     {!list.length && <p className="small muted" style={{ textAlign: 'center', padding: 12 }}>No goals here yet.</p>}
     <Button variant="secondary" icon="plus" onClick={() => { const d = newDraft(); const free = TEMPLATES.find(x => !taken.has(x.kind)) || TEMPLATES[5]; setDraft({ ...d, kind: free.kind, name: free.name, target: free.target, unit: free.unit, track: free.track, inc: free.inc }); }}>Add a goal</Button>
-    <p className="tiny quiet" style={{ textAlign: 'center' }}>Steps count automatically on the phone app. Here you can add them by hand.</p>
     {draft && <AddGoal draft={draft} taken={taken} partner={partner} hasPartner={!!data.partner} onChange={setDraft} onClose={() => setDraft(null)}
       onSave={async d => { await api.create(d, localDay()); setDraft(null); toast(d.owner === 'both' ? `Added — ${partner} was asked to join` : 'Goal added to today', { icon: 'check' }); void load(); }} />}
     {month && <MonthSheet load={(m, today) => api.month(m, today)} partner={partner} onClose={() => setMonth(false)} />}
@@ -81,7 +81,9 @@ function GoalCard({ g, partner, onSet, onCheer, onJoin, onRemove }: { g: Goal; p
   const text = (who: 'me' | 'them') => g.track === 'check' ? (done(g, who) ? 'Done' : 'Not yet') : `${fmt(g[who] ?? 0)} / ${fmt(g.target)}${g.unit ? ' ' + g.unit : ''}`;
   const bar = (who: 'me' | 'them', color: string, name: string) => <div className="row gap-8"><span className="tiny muted ellipsis" style={{ width: 52 }}>{name}</span><div className="bar"><i style={{ width: `${Math.min(100, (g[who] ?? 0) / g.target * 100)}%`, background: color }} /></div><span className="tiny" style={{ minWidth: 92, textAlign: 'right' }}>{done(g, who) && <span className="mint">✓ </span>}{text(who)}</span></div>;
   let control: React.ReactNode = null;
+  const phoneOnly = g.kind === 'steps' && g.owner !== 'them' && !g.invited;
   if (g.invited) control = <Button size="sm" onClick={onJoin}>Join</Button>;
+  else if (phoneOnly) control = null;
   else if (g.owner !== 'them') control = g.track === 'check'
     ? <button role="checkbox" aria-checked={done(g, 'me')} aria-label={`Mark ${g.name} done`} onClick={() => onSet(done(g, 'me') ? 0 : 1)} className="center" style={{ width: 40, height: 40, borderRadius: 12, border: `2px solid ${done(g, 'me') ? 'var(--mint)' : 'var(--edge-lit)'}`, background: done(g, 'me') ? 'var(--mint)' : 'transparent', color: 'var(--void)' }}>{done(g, 'me') && <Icon name="check" stroke={2.6} />}</button>
     : <div className="row gap-8"><IconButton size="sm" icon="minus" label={`Remove ${g.inc} ${g.unit}`} onClick={() => onSet(Math.max(0, me - g.inc))} /><button className="btn primary sm" style={{ padding: '0 12px' }} onClick={() => onSet(Math.min(g.target * 3, me + g.inc))} aria-label={`Add ${g.inc} ${g.unit}`}><Icon name="plus" size={15} stroke={2.4} />{fmt(g.inc)}</button></div>;
@@ -98,6 +100,7 @@ function GoalCard({ g, partner, onSet, onCheer, onJoin, onRemove }: { g: Goal; p
     </div>
     {g.owner === 'both' ? (g.invited ? <p className="tiny muted">{partner} asked you to do this together.</p> : <>{bar('me', 'var(--lav)', 'You')}{g.pending ? <p className="tiny muted">{partner} will see this as a request to join.</p> : bar('them', 'var(--mint)', partner)}</>)
       : g.track === 'check' ? null : bar(g.owner === 'me' ? 'me' : 'them', g.owner === 'me' ? 'var(--lav)' : 'var(--mint)', g.owner === 'me' ? 'You' : partner)}
+    {phoneOnly && <GetAppPrompt compact text="Your steps count automatically in the Our Space phone app." reason="Steps are counted by your phone’s health app (Google Health Connect or Apple Health), so they need the phone app." />}
   </div>;
 }
 
@@ -110,7 +113,7 @@ function AddGoal({ draft: d, taken, partner, hasPartner, onChange, onClose, onSa
     <div className="chips">{TEMPLATES.map(x => <button key={x.kind} disabled={taken.has(x.kind)} className={`chip ${x.kind === d.kind ? 'on' : ''}`} style={taken.has(x.kind) ? { opacity: .4 } : undefined} onClick={() => set({ kind: x.kind, name: x.name, target: x.target, unit: x.unit, track: x.track, inc: x.inc })}><Icon name={(x.kind === 'custom' ? 'custom' : x.kind) as IconName} size={15} />{x.label}{taken.has(x.kind) && ' · added'}</button>)}</div>
     <div className="field"><label htmlFor="goal-name">Goal name</label><input id="goal-name" className="input" maxLength={40} placeholder="e.g. Sleep by 11:30 pm" value={d.name} onChange={e => set({ name: e.target.value })} /></div>
     {d.track !== 'check' && <div className="field"><label>Daily target</label><div className="row gap-8"><IconButton icon="minus" label="Lower target" onClick={() => set({ target: Math.max(unitStep, d.target - unitStep) })} /><div className="input center grow" style={{ fontWeight: 600, fontSize: 18 }}>{fmt(d.target)} <span className="small muted" style={{ marginLeft: 6 }}>{d.unit}</span></div><IconButton icon="plus" label="Raise target" onClick={() => set({ target: d.target + unitStep })} /></div></div>}
-    <p className="small muted">{t.how('your phone’s health app')}</p>
+    {d.kind === 'steps' ? <GetAppPrompt text="Steps are counted by the phone app. Install it to track this goal — you can add it here now." reason="Steps are counted by your phone’s health app (Google Health Connect or Apple Health), so they need the phone app." /> : <p className="small muted">{t.how('your phone’s health app')}</p>}
   </Sheet>;
   const spans: [GoalDraft['span'], string][] = [['month', `Every day in ${MONTHS[new Date().getMonth()]}`], ['ongoing', 'Every day, ongoing'], ['weekdays', 'Weekdays only']];
   const who = (k: 'me' | 'both', title: string, body: string, disabled = false) => <button role="radio" aria-checked={d.owner === k} disabled={disabled} onClick={() => set({ owner: k })} className="inset row" style={{ padding: 16, textAlign: 'left', borderColor: d.owner === k ? 'var(--lav)' : undefined, opacity: disabled ? .5 : 1 }}>

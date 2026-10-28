@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon, IconName } from './Icon';
 
 export function Button({ children, variant = 'primary', icon, size, block, busy, className = '', ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'quiet-danger'; icon?: IconName; size?: 'sm'; block?: boolean; busy?: boolean }) {
@@ -41,7 +42,8 @@ export function Sheet({ title, sub, onClose, children, footer, wide, back }: Rea
     // Focus once when opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return <div className="scrim" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+  // On top of the whole page: panels with backdrop-filter would otherwise trap a fixed sheet inside them.
+  return createPortal(<div className="scrim" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
     <div ref={box} className={`sheet ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} tabIndex={-1}>
       <div className="sheet-head">
         {back && <IconButton icon="back" label="Back" size="sm" variant="plain" onClick={back} />}
@@ -51,7 +53,7 @@ export function Sheet({ title, sub, onClose, children, footer, wide, back }: Rea
       <div className="sheet-body">{children}</div>
       {footer && <div className="sheet-foot">{footer}</div>}
     </div>
-  </div>;
+  </div>, box.current?.ownerDocument.body || document.body);
 }
 
 type ToastOpts = { tone?: 'error' | 'info'; icon?: IconName; action?: { label: string; run: () => void }; ms?: number };

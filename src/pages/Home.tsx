@@ -1,25 +1,28 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useSpace } from '../lib/space';
 import { Avatar, Button, Notice, Skeleton, firstName } from '../components/ui';
 import { CreateRoomSheet, JoinRoomSheet, RoomCarousel } from '../components/RoomBits';
 import { CoverArt, roomVideos } from '../components/CoverArt';
 import { Plans } from '../components/Planner';
 import { Icon } from '../components/Icon';
+import { Checklist, FirstRun } from '../components/GettingStarted';
 
 const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
 
 export default function Home() {
   const space = useSpace();
+  const nav = useNavigate();
   const [sheet, setSheet] = useState<'create' | 'join' | null>(null);
+  const fresh = space.synced && space.rooms.length === 0;
   const live = space.rooms.find(r => r.playback?.playing) || space.rooms[0];
   const waiting = space.rooms.filter(r => r.hostId === space.user.id && r.requests.length > 0);
   const others = live ? live.members.filter(m => m.id !== space.user.id) : [];
   return <div className="page">
-    <div className="row between wrap gap-16">
+    {!fresh && <div className="row between wrap gap-16">
       <div className="col gap-4"><p className="muted">{greeting()}, {firstName(space.user.name)}</p><h1 className="display" style={{ fontSize: 40 }}>Where to <b>tonight?</b></h1></div>
-      <div className="row gap-8"><Button variant="secondary" icon="enter" onClick={() => setSheet('join')}>Join with code</Button><Button icon="plus" onClick={() => setSheet('create')}>Create a room</Button></div>
-    </div>
+      {!fresh && <div className="row gap-8"><Button variant="secondary" icon="enter" onClick={() => setSheet('join')}>Join with code</Button><Button icon="plus" onClick={() => setSheet('create')}>Create a room</Button></div>}
+    </div>}
     {space.waking && <div style={{ marginTop: 20 }}><Notice icon="moon">Waking up the server… this can take up to 30 seconds after a quiet spell.</Notice></div>}
     {space.error && !space.waking && space.rooms.length === 0 && <div style={{ marginTop: 20 }}><Notice tone="error">{space.error} <button className="lav" onClick={() => void space.refresh()}>Try again</button></Notice></div>}
     {waiting.map(r => <Link key={r.code} to={`/room/${r.code}?tab=people`} className="glass panel row" style={{ marginTop: 18, padding: '12px 16px', color: 'var(--text)' }}>
@@ -28,7 +31,7 @@ export default function Home() {
       <span className="lav small" style={{ fontWeight: 600 }}>Review</span>
     </Link>)}
 
-    <div style={{ marginTop: 28 }}>
+    <div style={{ marginTop: fresh ? 8 : 28 }}>
       {!space.synced ? <Skeleton h={400} r={34} />
         : live ? <Link to={`/room/${live.code}`} className="featured">
           <div className="featured-bg"><CoverArt name={live.name} videos={roomVideos(live, space.playlists)} /></div>
@@ -40,14 +43,7 @@ export default function Home() {
           </div>
           <div className="featured-side"><div className="stack">{live.members.slice(0, 5).map(m => <Avatar key={m.id} name={m.name} size={38} />)}</div></div>
         </Link>
-          : <div className="featured" style={{ alignItems: 'center' }}>
-            <div className="featured-bg"><CoverArt name="Our little universe" /></div>
-            <div className="featured-body">
-              <h2 className="featured-title">Make your first room</h2>
-              <p className="muted">Name it, share the code, and watch, talk and play together. Everyone you let in sees the same moment.</p>
-              <div className="row gap-8"><Button icon="plus" onClick={() => setSheet('create')}>Create a room</Button><Button variant="secondary" onClick={() => setSheet('join')}>I have a code</Button></div>
-            </div>
-          </div>}
+          : <FirstRun onCreate={() => setSheet('create')} onJoin={() => setSheet('join')} />}
     </div>
 
     {space.rooms.length > 1 && <>
@@ -55,8 +51,12 @@ export default function Home() {
       <RoomCarousel rooms={space.rooms} />
     </>}
 
-    <div className="section-head"><h2 className="h2">Coming up</h2></div>
-    <Plans />
+    {live && <div style={{ marginTop: 22 }}><Checklist onInvite={() => nav(`/room/${live.code}?tab=people`)} onPlay={() => nav(`/room/${live.code}`)} /></div>}
+
+    {space.rooms.length > 0 && <>
+      <div className="section-head"><h2 className="h2">Coming up</h2></div>
+      <Plans />
+    </>}
     {sheet === 'create' && <CreateRoomSheet onClose={() => setSheet(null)} />}
     {sheet === 'join' && <JoinRoomSheet onClose={() => setSheet(null)} />}
   </div>;

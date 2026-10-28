@@ -10,15 +10,21 @@ type YTPlayer = {
 };
 type YTNamespace = { Player: new (el: HTMLElement, o: Record<string, unknown>) => YTPlayer };
 declare global { interface Window { YT?: YTNamespace; onYouTubeIframeAPIReady?: () => void } }
-let apiPromise: Promise<YTNamespace> | null = null;
-function loadApi() {
-  if (window.YT?.Player) return Promise.resolve(window.YT);
-  if (!apiPromise) apiPromise = new Promise(resolve => {
-    const prev = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => { prev?.(); resolve(window.YT!); };
-    const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s);
-  });
-  return apiPromise;
+// Loaded once per window: the picture-in-picture window has its own copy, because the player talks to the
+// page that contains its iframe.
+const apis = new WeakMap<Window, Promise<YTNamespace>>();
+function loadApi(win: Window = window) {
+  if (win.YT?.Player) return Promise.resolve(win.YT);
+  let p = apis.get(win);
+  if (!p) {
+    p = new Promise(resolve => {
+      const prev = win.onYouTubeIframeAPIReady;
+      win.onYouTubeIframeAPIReady = () => { prev?.(); resolve(win.YT!); };
+      const s = win.document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; win.document.head.appendChild(s);
+    });
+    apis.set(win, p);
+  }
+  return p;
 }
 
 export type PlayerEvents = {
@@ -44,9 +50,10 @@ export default function YouTubePlayer({ playback, volume = 100, events }: { play
       intent.current = { playing: action === 'seek' ? (intent.current?.playing ?? initial.current.playing) : action === 'play', position, at: Date.now() };
       ev.current.onUserControl?.(action, position);
     };
-    void loadApi().then(YT => {
+    const win = host.current?.ownerDocument.defaultView || window;
+    void loadApi(win).then(YT => {
       if (!alive || !host.current) return;
-      const el = document.createElement('div'); host.current.appendChild(el);
+      const el = host.current.ownerDocument.createElement('div'); host.current.appendChild(el);
       const start = initial.current;
       player.current = new YT.Player(el, {
         videoId: start.videoId, width: '100%', height: '100%',

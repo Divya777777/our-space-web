@@ -24,6 +24,18 @@ export function useRoomChat(room: Room | undefined) {
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   const roomRef = useRef(room);
   useEffect(() => { roomRef.current = room; }, [room]);
+  // Message status: tell the room how far this browser has downloaded (delivered) and seen (read) the chat.
+  const told = useRef({ d: 0, r: 0 });
+  const tell = useCallback((kind: 'd' | 'r') => {
+    const cursor = ref.current.cursor;
+    if (!code || cursor <= told.current[kind]) return;
+    told.current = kind === 'r' ? { d: Math.max(told.current.d, cursor), r: cursor } : { ...told.current, d: cursor };
+    void space.api(`/rooms/${code}/e2e/receipt`, kind === 'r' ? { read: cursor } : { delivered: cursor }, 'POST')
+      .catch(() => { told.current = { d: 0, r: 0 }; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
+  /** Call while the chat is on screen: everything downloaded so far counts as seen. */
+  const markRead = useCallback(() => tell('r'), [tell]);
   const commit = useCallback((next: ChatState) => {
     ref.current = next; setState(next);
     clearTimeout(saveTimer.current);
@@ -97,6 +109,7 @@ export function useRoomChat(room: Room | undefined) {
           commit({ ...ref.current, cursor: Math.max(cursor, ref.current.cursor), items: [...ref.current.items, ...added].sort((a, b) => a.at - b.at) });
           more = page.more && page.messages.length > 0;
         }
+        tell('d');
       } catch { /* retried on the next room update */ }
       finally { syncing.current = false; }
     })();
@@ -140,7 +153,8 @@ export function useRoomChat(room: Room | undefined) {
     await deliver({ t: image ? 'image' : 'file', name, mime, size: raw.length, w, h, at, ...(squeeze ? { z: 1 } : {}) }, data, { key, name, mime, size: raw.length, w, h }, onProgress);
   }
   function dismiss(id: string) { commit({ ...ref.current, items: ref.current.items.filter(i => i.id !== id) }); }
-  return { items: state.items, loaded, sendText, sendFile, waitingForKeys, dismiss, unreadable };
+  useEffect(() => { if (loaded) tell('d'); }, [loaded, tell]);
+  return { items: state.items, cursor: state.cursor, loaded, sendText, sendFile, waitingForKeys, dismiss, unreadable, markRead };
 }
 
 /** Photos are resized to 1280 px JPEG like the phone app (keeps sealed messages small). */

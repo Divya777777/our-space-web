@@ -2,6 +2,8 @@
 // in the side panel. On a phone-sized window everything stacks.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import { usePip, useWantPip } from '../lib/pip';
 import { useSpace } from '../lib/space';
 import { positionNow, Track } from '../lib/model';
 import { enterRoom, useGatedPlayback } from '../lib/playGate';
@@ -64,7 +66,16 @@ export default function RoomPage() {
   }, [code]);
   useEffect(() => enterRoom(code), [code]);
   const gate = useGatedPlayback(code, room?.playback);
+  const pip = usePip();
+  // Offer PiP while something is playing; once floating, keep it there even when paused.
+  useWantPip('video', !!gate.playback && (gate.playback.playing || !!pip.slots));
   useEffect(() => { setPlayerError(''); }, [room?.playback?.videoId]);
+  // Tell the browser what's playing (lock screen / media keys, and Chrome's automatic picture-in-picture).
+  const playingNow = !!gate.playback?.playing;
+  useEffect(() => {
+    const ms = navigator.mediaSession; if (!ms) return;
+    try { ms.playbackState = playingNow ? 'playing' : gate.playback ? 'paused' : 'none'; if (room && gate.playback) ms.metadata = new MediaMetadata({ title: title || room.name, artist: room.name, album: 'Our Space', artwork: [{ src: `https://i.ytimg.com/vi/${gate.playback.videoId}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' }] }); } catch { /* unsupported */ }
+  }, [playingNow, title, room?.name, gate.playback?.videoId]);
   useEffect(() => { document.title = room ? `${room.name} · Our Space` : 'Our Space'; return () => { document.title = 'Our Space'; }; }, [room?.name]);
 
   const others = useMemo(() => (room?.members || []).filter(m => m.id !== space.user.id), [room?.members, space.user.id]);
@@ -83,6 +94,16 @@ export default function RoomPage() {
   };
   const next = () => { if (pb && room.queue?.length) void space.queue(code, 'next', { from: pb.videoId }).catch(fail); };
   const shareToChat = async (text: string) => { await chat.sendText(text); };
+
+  const playerEl = gate.playback ? <YouTubePlayer key={code} playback={gate.playback} volume={room.volume ?? 100} events={{
+          onTitle: (id, t) => { if (id === pb?.videoId) setTitle(t); },
+          onPosition: s => { position.current = s; },
+          onError: setPlayerError,
+          onEnded: id => { const key = `${id}:${pb?.revision}`; if (ended.current === key || !room.queue?.length) return; ended.current = key; void space.queue(code, 'next', { from: id }).catch(() => { ended.current = ''; }); },
+          onUserControl: (action, at) => { if (!pb) return; if (gate.waiting) { if (action === 'play') gate.join(); return; } void space.play(code, pb.videoId, action === 'seek' ? pb.playing : action === 'play', at).catch(fail); },
+        }} /> : null;
+  const floating = !!pip.slots && !!playerEl;
+  const popOut = () => void pip.open().then(ok => { if (!ok) toast('Your browser didn’t open the floating window. Try Chrome or Edge on a computer.', { tone: 'error' }); });
 
   const top = <div className="room-top">
     <IconButton icon="back" label="Back home" onClick={() => nav('/')} />
@@ -104,13 +125,7 @@ export default function RoomPage() {
     {top}
     <section className="stage" aria-label="Watch together">
       <div className="screen" ref={screen}>
-        {gate.playback ? <YouTubePlayer key={code} playback={gate.playback} volume={room.volume ?? 100} events={{
-          onTitle: (id, t) => { if (id === pb?.videoId) setTitle(t); },
-          onPosition: s => { position.current = s; },
-          onError: setPlayerError,
-          onEnded: id => { const key = `${id}:${pb?.revision}`; if (ended.current === key || !room.queue?.length) return; ended.current = key; void space.queue(code, 'next', { from: id }).catch(() => { ended.current = ''; }); },
-          onUserControl: (action, at) => { if (!pb) return; if (gate.waiting) { if (action === 'play') gate.join(); return; } void space.play(code, pb.videoId, action === 'seek' ? pb.playing : action === 'play', at).catch(fail); },
-        }} /> : <div className="screen-empty"><div className="col gap-16" style={{ alignItems: 'center' }}><Star size={48} glow /><p className="h2">What are we watching?</p><p className="muted small" style={{ maxWidth: 360 }}>Search below or paste a YouTube link. It plays for everyone here at the same moment.</p></div></div>}
+        {gate.playback ? (floating ? <div className="screen-empty"><div className="col gap-16" style={{ alignItems: 'center' }}><Icon name="pip" size={40} /><p className="h3">Playing in a floating window</p><p className="muted small" style={{ maxWidth: 340, textAlign: 'center' }}>Use any other app — it stays on top. Everyone here still watches in sync.</p><Button variant="secondary" onClick={pip.close}>Bring it back here</Button></div></div> : playerEl) : <div className="screen-empty"><div className="col gap-16" style={{ alignItems: 'center' }}><Star size={48} glow /><p className="h2">What are we watching?</p><p className="muted small" style={{ maxWidth: 360 }}>Search below or paste a YouTube link. It plays for everyone here at the same moment.</p></div></div>}
         {gate.waiting && <div className="gate"><div className="col gap-16" style={{ alignItems: 'center', textAlign: 'center' }}>
           <p className="h2">{pb?.updatedBy && pb.updatedBy !== space.user.id ? `${firstName(room.members.find(m => m.id === pb.updatedBy)?.name || 'Someone')} is playing something` : 'This room is playing'}</p>
           <Button icon="play" onClick={gate.join}>Join in</Button></div></div>}
@@ -124,6 +139,15 @@ export default function RoomPage() {
         <IconButton icon="bookmark" label="Save this video to a playlist" onClick={() => setSave({ videoId: pb.videoId, title: title || 'YouTube video' })} />
         <IconButton icon="expand" label="Full screen" onClick={() => void screen.current?.requestFullscreen?.().catch(() => {})} />
       </div>}
+      {floating && pb && createPortal(<div className="pip-player">
+        {playerEl}
+        <div className="pip-controls">
+          <IconButton size="sm" variant="accent" icon={gate.playback?.playing ? 'pause' : 'play'} label={gate.waiting ? 'Join in' : pb.playing ? 'Pause for everyone' : 'Play for everyone'} onClick={toggle} />
+          <IconButton size="sm" icon="next" label="Skip to the next video" disabled={!room.queue?.length} onClick={next} />
+          <span className="grow tiny ellipsis" style={{ fontWeight: 600 }}>{title || room.name}</span>
+          <IconButton size="sm" icon="back" label="Back to the room" onClick={() => { pip.close(); window.focus(); }} />
+        </div>
+      </div>, pip.slots!.video)}
       <YouTubeSearch saved={space.playlists} onPlay={t => playNow(t)} onQueue={pb ? t => void space.queue(code, 'add', { videoId: t.videoId, title: t.title }).then(() => toast('Added to Up next', { icon: 'queue' })).catch(fail) : undefined} />
       {others.length === 0 && <InviteCard room={room} />}
       <div className="col gap-8"><p className="h3">Plans</p><Plans code={code} compact /></div>
@@ -145,6 +169,7 @@ export default function RoomPage() {
     {menu && <Sheet title={room.name} sub={admin ? 'You’re the admin of this room.' : undefined} onClose={() => setMenu(false)}>
       <div className="col gap-8">
         {admin && <Button variant="secondary" icon="edit" onClick={() => { setMenu(false); setRename(room.name); }}>Rename room</Button>}
+        {pip.supported && pb && !floating && <Button variant="secondary" icon="pip" onClick={() => { setMenu(false); popOut(); }}>Pop out the video now</Button>}
         <Button variant="secondary" icon="copy" onClick={async () => { if (await copyText(room.code)) toast('Room code copied.', { icon: 'copy' }); }}>Copy room code</Button>
         <Button variant="quiet-danger" icon={admin ? 'trash' : 'logout'} onClick={async () => {
           setMenu(false);

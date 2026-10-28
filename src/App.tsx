@@ -6,6 +6,7 @@ import { Icon, IconName } from './components/Icon';
 import { Star } from './components/Brand';
 import { Starfield } from './components/Space';
 import { CallProvider } from './components/Call';
+import { PipProvider } from './lib/pip';
 import { OfflineBar } from './components/OfflineBar';
 import Welcome from './pages/Welcome';
 import Home from './pages/Home';
@@ -31,7 +32,7 @@ function Gate() {
   }
   const after = sessionStorage.getItem('ourspace.afterSignIn');
   if (after) { sessionStorage.removeItem('ourspace.afterSignIn'); return <Navigate to={after} replace />; }
-  return <CallProvider>
+  return <PipProvider><CallProvider>
     <div className="space" /><Starfield />
     <OfflineBar />
     <div className="shell">
@@ -50,7 +51,7 @@ function Gate() {
     </div>
     <TabBar />
     {space.needsName && <NameSetup />}
-  </CallProvider>;
+  </CallProvider></PipProvider>;
 }
 
 const NAV: { to: string; label: string; icon: IconName }[] = [

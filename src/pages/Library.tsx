@@ -9,23 +9,30 @@ import { Button, IconButton, Notice, Sheet, Skeleton, useConfirm, useToast } fro
 import { CoverArt, useTilt } from '../components/CoverArt';
 import { YouTubeSearch } from '../components/YouTubeSearch';
 import { Icon } from '../components/Icon';
+import { EmptyState } from '../components/EmptyState';
 import YouTubePlayer from '../components/YouTubePlayer';
 
 export default function Library() {
   const space = useSpace();
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const nav = useNavigate();
   const list = space.playlists.find(p => p.id === open);
   const personal = space.playlists.filter(p => p.scope === 'personal');
   const shared = space.playlists.filter(p => p.scope === 'room');
   if (list) return <PlaylistView list={list} onBack={() => setOpen(null)} />;
+  const nothing = space.synced && space.playlists.length === 0;
   const grid = (items: Playlist[]) => <div className="posters">{items.map(p => <PlaylistCard key={p.id} list={p} room={space.rooms.find(r => r.code === p.roomCode)?.name} onOpen={() => setOpen(p.id)} />)}</div>;
   return <div className="page">
     <div className="row between wrap gap-16"><div className="col gap-4"><h1 className="display" style={{ fontSize: 40 }}>Library</h1><p className="small muted">Your playlists, and the ones you share in rooms.</p></div><Button icon="plus" onClick={() => setCreating(true)}>New playlist</Button></div>
+    {nothing ? <div style={{ marginTop: 28 }}><EmptyState square ghosts={['Late-night favorites', 'Road trip', 'Ours']} title={<>Your library<br />is empty</>}
+      body={space.rooms.length ? 'Save any video you watch in a room with the bookmark under the player, or start a playlist and search YouTube right here.' : 'Start a playlist and search YouTube right here. Once you make a room, it gets a shared playlist everyone in it can add to.'}
+      actions={<><Button icon="plus" onClick={() => setCreating(true)}>New playlist</Button>{space.rooms[0] && <Button variant="secondary" icon="play" onClick={() => nav(`/room/${space.rooms[0].code}`)}>Go to {space.rooms[0].name}</Button>}</>} /></div> : <>
     <div className="section-head"><h2 className="h2">Just yours</h2>{space.plan.limits && <span className="small muted">{personal.length} of {space.plan.limits.personalPlaylists} on the free plan</span>}</div>
-    {!space.synced ? <Skeleton h={200} r={24} /> : personal.length ? grid(personal) : <p className="muted">No personal playlists yet. Save videos from any room with the bookmark button.</p>}
+    {!space.synced ? <Skeleton h={200} r={24} /> : personal.length ? grid(personal) : <button className="ghost-row glass" onClick={() => setCreating(true)}><span className="journey-dot"><Icon name="plus" size={16} /></span><span><b>Start a playlist just for you</b><span className="small muted">Or save videos from any room with the bookmark button.</span></span></button>}
     <div className="section-head"><h2 className="h2">Shared in rooms</h2></div>
-    {shared.length ? grid(shared) : <p className="muted">Each room gets a shared playlist everyone in it can add to.</p>}
+    {shared.length ? grid(shared) : <div className="ghost-row glass" style={{ cursor: 'default' }}><span className="journey-dot"><Icon name="users" size={16} /></span><span><b>Nothing shared yet</b><span className="small muted">Each room gets a shared playlist everyone in it can add to.</span></span></div>}
+    </>}
     {creating && <NewPlaylist onClose={() => setCreating(false)} onCreated={id => { setCreating(false); setOpen(id); }} />}
   </div>;
 }

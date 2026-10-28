@@ -13,7 +13,13 @@ goal in two steps, cheers, monthly record), Play (Scribble live or draw-and-send
 monthly scores), plans, rename / leave / delete rooms, remove member, report & block, display name, delete account.
 
 Not on the web (phone only): automatic step counting (add steps by hand here), push notifications when the site is
-closed (an open tab shows a browser notification for incoming calls if allowed), picture-in-picture for calls.
+closed (an open tab shows a browser notification for incoming calls if allowed).
+
+**Picture-in-picture:** the room video and/or the call pop out into a small always-on-top window (Document
+Picture-in-Picture, Chrome / Edge / Brave / Opera on a computer). Controls inside it act for everyone. Newer Chrome
+opens it by itself when you switch tabs or apps during a call or while a video plays, and closes it when you come back
+(there is no pop-out button; the room menu has "Pop out the video now"). Safari: the call video floats by itself; Firefox / Safari use the browser’s
+video picture-in-picture; the YouTube video can’t float there.
 
 ## Run it
 
