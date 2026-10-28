@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { usePip, useWantPip } from '../lib/pip';
+import { markRoomVisited } from '../lib/recentRooms';
 import { useSpace } from '../lib/space';
 import { positionNow, Track } from '../lib/model';
 import { enterRoom, useGatedPlayback } from '../lib/playGate';
@@ -65,6 +66,7 @@ export default function RoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
   useEffect(() => enterRoom(code), [code]);
+  useEffect(() => { if (!problem) markRoomVisited(code); }, [code, problem]);
   const gate = useGatedPlayback(code, room?.playback);
   const pip = usePip();
   // Offer PiP while something is playing; once floating, keep it there even when paused.
@@ -137,6 +139,7 @@ export default function RoomPage() {
         <div className="now grow"><p className="small ellipsis" style={{ fontWeight: 600 }}>{title || 'Loading title…'}</p><p className="tiny muted ellipsis">{gate.waiting ? 'Paused for you' : pb.playing ? 'Playing for everyone' : 'Paused for everyone'}{room.queue?.length ? ` · ${room.queue.length} up next` : ''}</p></div>
         <Volume value={room.volume ?? 100} onChange={v => void space.setVolume(code, v).catch(fail)} />
         <IconButton icon="bookmark" label="Save this video to a playlist" onClick={() => setSave({ videoId: pb.videoId, title: title || 'YouTube video' })} />
+        {pip.supported && !floating && <IconButton icon="pip" label="Float the video in a small window" onClick={popOut} />}
         <IconButton icon="expand" label="Full screen" onClick={() => void screen.current?.requestFullscreen?.().catch(() => {})} />
       </div>}
       {floating && pb && createPortal(<div className="pip-player">
@@ -145,6 +148,7 @@ export default function RoomPage() {
           <IconButton size="sm" variant="accent" icon={gate.playback?.playing ? 'pause' : 'play'} label={gate.waiting ? 'Join in' : pb.playing ? 'Pause for everyone' : 'Play for everyone'} onClick={toggle} />
           <IconButton size="sm" icon="next" label="Skip to the next video" disabled={!room.queue?.length} onClick={next} />
           <span className="grow tiny ellipsis" style={{ fontWeight: 600 }}>{title || room.name}</span>
+          <IconButton size="sm" icon="volume" label="Close this window and keep playing in the background" onClick={pip.background} />
           <IconButton size="sm" icon="back" label="Back to the room" onClick={() => { pip.close(); window.focus(); }} />
         </div>
       </div>, pip.slots!.video)}
@@ -170,6 +174,7 @@ export default function RoomPage() {
       <div className="col gap-8">
         {admin && <Button variant="secondary" icon="edit" onClick={() => { setMenu(false); setRename(room.name); }}>Rename room</Button>}
         {pip.supported && pb && !floating && <Button variant="secondary" icon="pip" onClick={() => { setMenu(false); popOut(); }}>Pop out the video now</Button>}
+        {pip.supported && <Button variant="secondary" icon="pip" onClick={() => { pip.setAutoFloat(!pip.autoFloat); toast(pip.autoFloat ? 'The video keeps playing in the background when you switch tabs.' : 'The video floats in a small window when you switch tabs.', { icon: 'pip' }); }}>{pip.autoFloat ? 'Float video when I switch tabs: On' : 'Float video when I switch tabs: Off'}</Button>}
         <Button variant="secondary" icon="copy" onClick={async () => { if (await copyText(room.code)) toast('Room code copied.', { icon: 'copy' }); }}>Copy room code</Button>
         <Button variant="quiet-danger" icon={admin ? 'trash' : 'logout'} onClick={async () => {
           setMenu(false);

@@ -4,6 +4,12 @@
 // the video fills it and the call sits on top as a small strip. Where the browser supports it, switching tabs
 // during a call or while a video plays opens it automatically (Media Session "enterpictureinpicture").
 // Other browsers (Safari, Firefox) fall back to the video element's own picture-in-picture for calls.
+//
+// Why a quiet sound plays in the page while a video runs: Chrome only opens picture-in-picture by itself on a tab
+// switch when the page's OWN top frame is playing audible media. The YouTube video plays inside YouTube's iframe,
+// which doesn't count, so the switch never fired. A looping, practically silent tone (-60 dB, below hearing at
+// normal volume, above Chrome's silence threshold) in the page makes the tab qualify. It only plays while a video
+// is playing and automatic floating is on.
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 type Kind = 'video' | 'call';
@@ -13,8 +19,16 @@ const docPip = () => (typeof window !== 'undefined' ? window.documentPictureInPi
 export const pipSupported = () => !!docPip();
 
 type Slots = { video: HTMLElement; call: HTMLElement };
-type Pip = { supported: boolean; slots: Slots | null; open: (auto?: boolean) => Promise<boolean>; close: () => void; want: (kind: Kind, on: boolean) => void };
-const Context = createContext<Pip>({ supported: false, slots: null, open: async (_auto?: boolean) => false, close: () => {}, want: () => {} });
+type Pip = {
+  supported: boolean; slots: Slots | null; open: (auto?: boolean) => Promise<boolean>; close: () => void; want: (kind: Kind, on: boolean) => void;
+  /** Float the video by itself when you switch tabs or apps (on by default; remembered in this browser). */
+  autoFloat: boolean; setAutoFloat: (on: boolean) => void;
+  /** Close the floating window but keep playing; it won't pop up again until you come back to the tab. */
+  background: () => void;
+};
+const Context = createContext<Pip>({ supported: false, slots: null, open: async (_auto?: boolean) => false, close: () => {}, want: () => {}, autoFloat: true, setAutoFloat: () => {}, background: () => {} });
+const AUTO_KEY = 'ourspace.autoFloat';
+const readAuto = () => { try { return localStorage.getItem(AUTO_KEY) !== 'off'; } catch { return true; } };
 export const usePip = () => useContext(Context);
 
 export function PipProvider({ children }: React.PropsWithChildren) {
@@ -24,11 +38,16 @@ export function PipProvider({ children }: React.PropsWithChildren) {
   const wantsRef = useRef(wants); wantsRef.current = wants;
   const want = useCallback((kind: Kind, on: boolean) => setWants(w => (w[kind] === on ? w : { ...w, [kind]: on })), []);
 
+  const [autoFloat, setAutoState] = useState(readAuto);
+  const setAutoFloat = useCallback((on: boolean) => { setAutoState(on); try { localStorage.setItem(AUTO_KEY, on ? 'on' : 'off'); } catch { /* private mode */ } }, []);
+  /** Chose "keep playing in the background" while away: don't float again until they come back to the tab. */
+  const resting = useRef(false);
   /** Opened by itself (you left the tab / app) → closes by itself when you come back, like the phone. */
   const auto = useRef(false);
   const close = useCallback(() => { const w = win.current; win.current = null; auto.current = false; setSlots(null); try { w?.close(); } catch { /* gone */ } }, []);
   const open = useCallback(async (isAuto = false) => {
     const api = docPip(); if (!api) return false;
+    if (isAuto && resting.current) return false;
     if (win.current) { if (!isAuto) { auto.current = false; win.current.focus(); } return true; }
     auto.current = isAuto;
     const video = wantsRef.current.video;
@@ -51,24 +70,37 @@ export function PipProvider({ children }: React.PropsWithChildren) {
   useEffect(() => { if (slots && !wants.video && !wants.call) close(); }, [slots, wants.video, wants.call, close]);
   useEffect(() => () => close(), [close]);
 
+  const background = useCallback(() => { resting.current = true; close(); }, [close]);
   const active = wants.video || wants.call;
+  const floats = active && autoFloat;
+  // The quiet tone that lets Chrome float the tab by itself (see the note at the top). Video only: calls already
+  // qualify through Chrome's rule for video calls (camera or microphone in use).
+  useEffect(() => {
+    if (!docPip() || !autoFloat || !wants.video || wants.call) return;
+    const audio = carrier();
+    const start = () => { void audio.play().catch(() => {}); };
+    start();
+    // Browsers only allow sound after a tap on the page; try again on the next one.
+    document.addEventListener('pointerdown', start, true);
+    return () => { document.removeEventListener('pointerdown', start, true); audio.pause(); };
+  }, [autoFloat, wants.video, wants.call]);
   // 1) Switching to another tab: Chrome asks us to enter PiP by itself (Media Session "enterpictureinpicture").
   useEffect(() => {
     const ms = navigator.mediaSession as MediaSession | undefined;
-    if (!ms || !docPip() || !active) return;
+    if (!ms || !docPip() || !floats) return;
     try { ms.setActionHandler('enterpictureinpicture' as MediaSessionAction, () => { void open(true); }); } catch { return; }
     return () => { try { ms.setActionHandler('enterpictureinpicture' as MediaSessionAction, null); } catch { /* unsupported */ } };
-  }, [active, open]);
+  }, [floats, open]);
   // 2) Switching to another app: browsers only let a page open a window right after a tap/click on it, so this
   //    works when you used the page in the last few seconds (pressed play, answered, typed in chat) and then left.
   // 3) Coming back to the tab closes a window that opened by itself.
   useEffect(() => {
-    if (!docPip() || !active) return;
+    if (!docPip()) return;
     // A file or photo picker also takes focus away; that isn't leaving either.
     let picking = false;
     const onClick = (e: MouseEvent) => { const t = e.target as HTMLElement | null; if (t?.closest('input[type=file], label:has(input[type=file])')) picking = true; };
     const onBlur = () => {
-      if (win.current || picking) return;
+      if (!floats || win.current || picking) return;
       setTimeout(() => {
         if (document.hasFocus() || win.current) return;
         // Clicking into the YouTube player moves focus into its iframe; that isn't leaving.
@@ -78,15 +110,18 @@ export function PipProvider({ children }: React.PropsWithChildren) {
         void open(true);
       }, 0);
     };
-    const onBack = () => { if (document.hasFocus()) picking = false; if (document.visibilityState === 'visible' && document.hasFocus() && auto.current) close(); };
+    const onBack = () => {
+      if (document.hasFocus()) picking = false;
+      if (document.visibilityState === 'visible' && document.hasFocus()) { resting.current = false; if (auto.current) close(); }
+    };
     document.addEventListener('click', onClick, true);
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onBack);
     document.addEventListener('visibilitychange', onBack);
     return () => { document.removeEventListener('click', onClick, true); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
-  }, [active, open, close]);
+  }, [floats, open, close]);
 
-  const value = useMemo(() => ({ supported: pipSupported(), slots, open, close, want }), [slots, open, close, want]);
+  const value = useMemo(() => ({ supported: pipSupported(), slots, open, close, want, autoFloat, setAutoFloat, background }), [slots, open, close, want, autoFloat, setAutoFloat, background]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
@@ -111,4 +146,20 @@ function copyStyles(from: Document, to: Document) {
     }
   }
   const meta = to.createElement('meta'); meta.name = 'color-scheme'; meta.content = 'dark'; to.head.append(meta);
+}
+
+/** One looping 1-second tone at -60 dB (30 Hz): inaudible in practice, but it counts as sound for Chrome. */
+let carrierAudio: HTMLAudioElement | null = null;
+function carrier() {
+  if (carrierAudio) return carrierAudio;
+  const rate = 8000, n = rate, data = new DataView(new ArrayBuffer(44 + n * 2));
+  const text = (o: number, s: string) => { for (let i = 0; i < s.length; i++) data.setUint8(o + i, s.charCodeAt(i)); };
+  text(0, 'RIFF'); data.setUint32(4, 36 + n * 2, true); text(8, 'WAVE'); text(12, 'fmt ');
+  data.setUint32(16, 16, true); data.setUint16(20, 1, true); data.setUint16(22, 1, true); data.setUint32(24, rate, true);
+  data.setUint32(28, rate * 2, true); data.setUint16(32, 2, true); data.setUint16(34, 16, true); text(36, 'data'); data.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) data.setInt16(44 + i * 2, Math.round(Math.sin(2 * Math.PI * 30 * i / rate) * 32767 * 0.001), true);
+  const audio = new Audio(URL.createObjectURL(new Blob([data.buffer], { type: 'audio/wav' })));
+  audio.loop = true; audio.preload = 'auto';
+  carrierAudio = audio;
+  return audio;
 }

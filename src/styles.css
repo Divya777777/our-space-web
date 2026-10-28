@@ -527,3 +527,18 @@ textarea.input { height: auto; padding: 12px 16px; resize: vertical; min-height:
 .pip-video:not(:empty) + .pip-call .pip-bar > .grow { display: none; }
 .get-app { padding: 10px 12px; border-radius: 14px; background: linear-gradient(100deg, rgba(200,182,255,.14), rgba(182,221,207,.08)); border: 1px solid rgba(200,182,255,.22); color: var(--text); }
 .get-app > svg { color: var(--lav); flex: none; }
+
+/* Home: other rooms as circles; a click swaps that room into the big card. */
+.room-circles { display: flex; gap: 18px; overflow-x: auto; padding: 4px 2px 10px; scrollbar-width: none; }
+.room-circles::-webkit-scrollbar { display: none; }
+.room-circle { position: relative; flex: none; width: 96px; display: flex; flex-direction: column; align-items: center; gap: 9px; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; }
+.room-circle-art { position: relative; width: 84px; height: 84px; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,.12), 0 10px 26px rgba(0,0,0,.35); transition: transform .25s var(--ease), box-shadow .25s var(--ease); }
+.room-circle-art .orbit-star { transform: scale(.7); }
+.room-circle:hover .room-circle-art, .room-circle:focus-visible .room-circle-art { transform: translateY(-3px) scale(1.04); box-shadow: 0 0 0 2px var(--lav), 0 14px 30px rgba(0,0,0,.45); }
+.room-circle.live .room-circle-art { box-shadow: 0 0 0 2px var(--mint), 0 0 0 5px rgba(182,221,207,.18), 0 10px 26px rgba(0,0,0,.35); }
+.room-circle-name { max-width: 96px; font-size: 13px; text-align: center; }
+.room-circle:hover .room-circle-name { color: var(--text); }
+.room-circle-badge { position: absolute; top: 0; right: 8px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: var(--gold); color: #0C101C; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 3px var(--void-2, #05070F); }
+.featured-swap { animation: featured-in .45s var(--ease); }
+@keyframes featured-in { from { opacity: .4; transform: translateY(6px) scale(.995); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .featured-swap { animation: none; } }

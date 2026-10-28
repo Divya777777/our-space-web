@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import type { Room } from '../lib/model';
+import { lastVisitOf, useRoomsByVisit } from '../lib/recentRooms';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSpace } from '../lib/space';
 import { Avatar, Button, Notice, Skeleton, firstName } from '../components/ui';
-import { CreateRoomSheet, JoinRoomSheet, RoomCarousel } from '../components/RoomBits';
+import { CreateRoomSheet, JoinRoomSheet } from '../components/RoomBits';
 import { CoverArt, roomVideos } from '../components/CoverArt';
 import { Plans } from '../components/Planner';
 import { Icon } from '../components/Icon';
@@ -15,7 +17,11 @@ export default function Home() {
   const nav = useNavigate();
   const [sheet, setSheet] = useState<'create' | 'join' | null>(null);
   const fresh = space.synced && space.rooms.length === 0;
-  const live = space.rooms.find(r => r.playback?.playing) || space.rooms[0];
+  // Big card: the room you opened last in this browser. A tap on a room circle below shows that room here instead.
+  const ordered = useRoomsByVisit(space.rooms);
+  const [picked, setPicked] = useState<string | null>(null);
+  const live = ordered.find(r => r.code === picked) || ordered[0];
+  const lead = !!live && live.code === ordered[0]?.code && lastVisitOf(live.code) > 0;
   const waiting = space.rooms.filter(r => r.hostId === space.user.id && r.requests.length > 0);
   const others = live ? live.members.filter(m => m.id !== space.user.id) : [];
   return <div className="page">
@@ -33,22 +39,22 @@ export default function Home() {
 
     <div style={{ marginTop: fresh ? 8 : 28 }}>
       {!space.synced ? <Skeleton h={400} r={34} />
-        : live ? <Link to={`/room/${live.code}`} className="featured">
+        : live ? <div key={live.code} className="featured featured-swap">
           <div className="featured-bg"><CoverArt name={live.name} videos={roomVideos(live, space.playlists)} /></div>
           <div className="featured-body">
-            {live.playback?.playing ? <span className="chip-live" style={{ alignSelf: 'flex-start' }}><span className="eq"><i /><i /><i /></span>Playing now</span> : <span className="small muted">Pick up where you left off</span>}
+            {live.playback?.playing ? <span className="chip-live" style={{ alignSelf: 'flex-start' }}><span className="eq"><i /><i /><i /></span>Playing now</span> : <span className="small muted">{lead ? 'Pick up where you left off' : 'Your shared space'}</span>}
             <h2 className="featured-title">{live.name}</h2>
             <p className="muted">{others.length ? `With ${others.slice(0, 3).map(o => firstName(o.name)).join(', ')}${others.length > 3 ? ` and ${others.length - 3} more` : ''}` : 'Only you so far — invite your person from inside.'}</p>
-            <div className="row gap-16"><span className="btn primary"><Icon name="play" size={16} />Enter room</span><span className="room-code">{live.code}</span></div>
+            <div className="row gap-16"><Link to={`/room/${live.code}`} className="btn primary"><Icon name="play" size={16} />{live.playback?.playing ? 'Jump back in' : 'Enter room'}</Link><span className="room-code">{live.code}</span></div>
           </div>
           <div className="featured-side"><div className="stack">{live.members.slice(0, 5).map(m => <Avatar key={m.id} name={m.name} size={38} />)}</div></div>
-        </Link>
+        </div>
           : <FirstRun onCreate={() => setSheet('create')} onJoin={() => setSheet('join')} />}
     </div>
 
-    {space.rooms.length > 1 && <>
-      <div className="section-head"><h2 className="h2">Your rooms</h2><Link to="/rooms" className="small">See all</Link></div>
-      <RoomCarousel rooms={space.rooms} />
+    {space.synced && live && ordered.length > 1 && <>
+      <div className="section-head"><h2 className="h2">Your other rooms</h2><Link to="/rooms" className="small">See all</Link></div>
+      <RoomCircles rooms={ordered.filter(r => r.code !== live.code)} playlists={space.playlists} onPick={setPicked} />
     </>}
 
     {live && <div style={{ marginTop: 22 }}><Checklist onInvite={() => nav(`/room/${live.code}?tab=people`)} onPlay={() => nav(`/room/${live.code}`)} /></div>}
@@ -59,5 +65,16 @@ export default function Home() {
     </>}
     {sheet === 'create' && <CreateRoomSheet onClose={() => setSheet(null)} />}
     {sheet === 'join' && <JoinRoomSheet onClose={() => setSheet(null)} />}
+  </div>;
+}
+
+/** Every other room as a small circle, most recently visited first. A click shows it in the big card above. */
+function RoomCircles({ rooms, playlists, onPick }: { rooms: Room[]; playlists: Parameters<typeof roomVideos>[1]; onPick: (code: string) => void }) {
+  return <div className="room-circles" role="list">
+    {rooms.map(r => <button key={r.code} role="listitem" className={`room-circle ${r.playback?.playing ? 'live' : ''}`} aria-label={`Show ${r.name}`} title={r.name} onClick={() => { onPick(r.code); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
+      <span className="room-circle-art"><CoverArt name={r.name} videos={roomVideos(r, playlists)} /></span>
+      {r.requests.length > 0 && <span className="room-circle-badge">{r.requests.length}</span>}
+      <span className="room-circle-name ellipsis">{r.name}</span>
+    </button>)}
   </div>;
 }
