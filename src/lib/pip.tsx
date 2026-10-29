@@ -140,19 +140,36 @@ export function PipProvider({ children }: React.PropsWithChildren) {
         void open(true);
       }, 0);
     };
+    // macOS reports the page as hidden when another app covers Chrome or the window is minimised (the old site used
+    // this too). Try to float then as well; the browser decides whether it's allowed at that moment.
+    const onHidden = () => {
+      if (document.visibilityState !== 'hidden' || !floats || win.current || picking) return;
+      void open(true).then(ok => { if (!ok && wantsRef.current.call) floatCallVideo(); });
+    };
     const onBack = () => {
       if (document.hasFocus()) picking = false;
+      if (document.visibilityState === 'visible' && document.pictureInPictureElement) void document.exitPictureInPicture().catch(() => {});
       if (document.visibilityState === 'visible' && document.hasFocus()) { resting.current = false; if (auto.current) close(); }
     };
     document.addEventListener('click', onClick, true);
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onBack);
     document.addEventListener('visibilitychange', onBack);
-    return () => { document.removeEventListener('click', onClick, true); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
+    document.addEventListener('visibilitychange', onHidden);
+    return () => { document.removeEventListener('visibilitychange', onHidden); document.removeEventListener('click', onClick, true); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
   }, [floats, open, close]);
 
   const value = useMemo(() => ({ supported: pipSupported(), slots, open, close, want, autoFloat, setAutoFloat, keepFloating, setKeepFloating, background }), [slots, open, close, want, autoFloat, setAutoFloat, keepFloating, setKeepFloating, background]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
+}
+
+/** Fallback for calls (what the old site did): float the other person's video with the browser's own video
+ * picture-in-picture, which Chrome allows more often than a floating page while a camera call is on. */
+function floatCallVideo() {
+  if (document.pictureInPictureElement) return;
+  const video = Array.from(document.querySelectorAll<HTMLVideoElement>('video[data-remote]')).find(v => v.srcObject && v.videoWidth > 0);
+  if (!video || typeof video.requestPictureInPicture !== 'function') return;
+  void video.requestPictureInPicture().catch(() => { /* not allowed right now */ });
 }
 
 /** Tell the provider this content can go into PiP right now (a video is loaded / a call is on). */
