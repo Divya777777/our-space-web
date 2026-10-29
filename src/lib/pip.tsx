@@ -23,12 +23,16 @@ type Pip = {
   supported: boolean; slots: Slots | null; open: (auto?: boolean) => Promise<boolean>; close: () => void; want: (kind: Kind, on: boolean) => void;
   /** Float the video by itself when you switch tabs or apps (on by default; remembered in this browser). */
   autoFloat: boolean; setAutoFloat: (on: boolean) => void;
+  /** Open the floating window when playback starts (by click) and keep it open, so it's there in other apps too. */
+  keepFloating: boolean; setKeepFloating: (on: boolean) => void;
   /** Close the floating window but keep playing; it won't pop up again until you come back to the tab. */
   background: () => void;
 };
-const Context = createContext<Pip>({ supported: false, slots: null, open: async (_auto?: boolean) => false, close: () => {}, want: () => {}, autoFloat: true, setAutoFloat: () => {}, background: () => {} });
+const Context = createContext<Pip>({ supported: false, slots: null, open: async (_auto?: boolean) => false, close: () => {}, want: () => {}, autoFloat: true, setAutoFloat: () => {}, keepFloating: false, setKeepFloating: () => {}, background: () => {} });
 const AUTO_KEY = 'ourspace.autoFloat';
 const readAuto = () => { try { return localStorage.getItem(AUTO_KEY) !== 'off'; } catch { return true; } };
+const KEEP_KEY = 'ourspace.keepFloating';
+const readKeep = () => { try { return localStorage.getItem(KEEP_KEY) === 'on'; } catch { return false; } };
 export const usePip = () => useContext(Context);
 
 export function PipProvider({ children }: React.PropsWithChildren) {
@@ -40,6 +44,8 @@ export function PipProvider({ children }: React.PropsWithChildren) {
 
   const [autoFloat, setAutoState] = useState(readAuto);
   const setAutoFloat = useCallback((on: boolean) => { setAutoState(on); try { localStorage.setItem(AUTO_KEY, on ? 'on' : 'off'); } catch { /* private mode */ } }, []);
+  const [keepFloating, setKeepState] = useState(readKeep);
+  const setKeepFloating = useCallback((on: boolean) => { setKeepState(on); try { localStorage.setItem(KEEP_KEY, on ? 'on' : 'off'); } catch { /* private mode */ } }, []);
   /** Chose "keep playing in the background" while away: don't float again until they come back to the tab. */
   const resting = useRef(false);
   /** Opened by itself (you left the tab / app) → closes by itself when you come back, like the phone. */
@@ -88,6 +94,12 @@ export function PipProvider({ children }: React.PropsWithChildren) {
   useEffect(() => { if (slots && !wants.video && !wants.call) close(); }, [slots, wants.video, wants.call, close]);
   useEffect(() => () => close(), [close]);
 
+  // Fetch the floating window's page ahead of time, so opening it doesn't wait for the network.
+  useEffect(() => {
+    if (!docPip() || !wants.video || document.querySelector('link[data-pip-prefetch]')) return;
+    const link = document.createElement('link'); link.rel = 'prefetch'; link.href = `${import.meta.env.BASE_URL}pip-frame.html`; link.setAttribute('data-pip-prefetch', '');
+    document.head.append(link);
+  }, [wants.video]);
   const background = useCallback(() => { resting.current = true; close(); }, [close]);
   const active = wants.video || wants.call;
   const floats = active && autoFloat;
@@ -123,8 +135,8 @@ export function PipProvider({ children }: React.PropsWithChildren) {
         if (document.hasFocus() || win.current) return;
         // Clicking into the YouTube player moves focus into its iframe; that isn't leaving.
         if (document.activeElement instanceof HTMLIFrameElement) return;
-        const ua = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation;
-        if (ua && !ua.isActive) return;
+        // Browsers only allow the window right after you used the page (a click, or the Alt / Cmd key of
+        // Alt-Tab / Cmd-Tab in some browsers). Just try: if it isn't allowed, nothing happens.
         void open(true);
       }, 0);
     };
@@ -139,7 +151,7 @@ export function PipProvider({ children }: React.PropsWithChildren) {
     return () => { document.removeEventListener('click', onClick, true); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
   }, [floats, open, close]);
 
-  const value = useMemo(() => ({ supported: pipSupported(), slots, open, close, want, autoFloat, setAutoFloat, background }), [slots, open, close, want, autoFloat, setAutoFloat, background]);
+  const value = useMemo(() => ({ supported: pipSupported(), slots, open, close, want, autoFloat, setAutoFloat, keepFloating, setKeepFloating, background }), [slots, open, close, want, autoFloat, setAutoFloat, keepFloating, setKeepFloating, background]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

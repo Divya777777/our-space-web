@@ -109,10 +109,14 @@ export default function RoomPage() {
   const admin = room.hostId === space.user.id;
   const pb = room.playback;
   const fail = (e: unknown) => toast((e as Error).message || 'Could not update playback. Try again.', { tone: 'error' });
-  const playNow = (t: Track, context?: Track[]) => { gate.join(); void space.play(code, t.videoId, true, 0, context).catch(fail); };
+  // "Keep the video floating": open the small window on the click that starts playback (browsers only allow a
+  // window right after a click), so it's already there when you switch to another app.
+  const floatNow = () => { if (pip.keepFloating && pip.supported && !pip.slots) void pip.open(); };
+  const playNow = (t: Track, context?: Track[]) => { floatNow(); gate.join(); void space.play(code, t.videoId, true, 0, context).catch(fail); };
   const toggle = () => {
     if (!pb) return;
-    if (gate.waiting) { gate.join(); return; }
+    if (gate.waiting) { floatNow(); gate.join(); return; }
+    if (!pb.playing) floatNow();
     void space.play(code, pb.videoId, !pb.playing, position.current || positionNow(pb)).catch(fail);
   };
   const next = () => { if (pb && room.queue?.length) void space.queue(code, 'next', { from: pb.videoId }).catch(fail); };
@@ -130,7 +134,11 @@ export default function RoomPage() {
   const floating = !!pip.slots && !!playerEl;
   // The floating window shows a muted copy that follows the main player (which keeps playing the sound here).
   const mainTime = () => { const h = heard.current; if (!h) return null; const age = Date.now() - h.at; if (gate.playback?.playing && age > 3000) return null; return h.t + (gate.playback?.playing ? age / 1000 : 0); };
-  const pipPlayer = floating && gate.playback ? <YouTubePlayer key={`pip-${code}`} playback={gate.playback} events={{}} follow={mainTime} /> : null;
+  // Until the floating copy is actually playing, the window shows the video's picture instead of black.
+  // Remembered per floating window (a new window starts with the picture again).
+  const [liveIn, setLiveIn] = useState<object | null>(null);
+  const pipLive = !!pip.slots && liveIn === pip.slots;
+  const pipPlayer = floating && gate.playback ? <YouTubePlayer key={`pip-${code}`} playback={gate.playback} events={{ onStarted: () => setLiveIn(pip.slots) }} follow={mainTime} /> : null;
   const popOut = () => void pip.open().then(ok => { if (!ok) toast('Your browser didn’t open the floating window. Try Chrome or Edge on a computer.', { tone: 'error' }); });
 
   const top = <div className="room-top">
@@ -173,6 +181,7 @@ export default function RoomPage() {
       </div>}
       {floating && pb && createPortal(<div className="pip-player">
         {pipPlayer}
+        <img className={`pip-poster ${pipLive ? 'gone' : ''}`} src={`https://i.ytimg.com/vi/${pb.videoId}/hqdefault.jpg`} alt="" aria-hidden="true" />
         <div className="pip-controls">
           <IconButton size="sm" variant="accent" icon={gate.playback?.playing ? 'pause' : 'play'} label={gate.waiting ? 'Join in' : pb.playing ? 'Pause for everyone' : 'Play for everyone'} onClick={toggle} />
           <IconButton size="sm" icon="next" label="Skip to the next video" disabled={!room.queue?.length} onClick={next} />
@@ -203,6 +212,7 @@ export default function RoomPage() {
       <div className="col gap-8">
         {admin && <Button variant="secondary" icon="edit" onClick={() => { setMenu(false); setRename(room.name); }}>Rename room</Button>}
         {pip.supported && pb && !floating && <Button variant="secondary" icon="pip" onClick={() => { setMenu(false); popOut(); }}>Pop out the video now</Button>}
+        {pip.supported && <Button variant="secondary" icon="pip" onClick={() => { const on = !pip.keepFloating; pip.setKeepFloating(on); toast(on ? 'The video opens in a small window when you press play, so it stays with you in other apps.' : 'The video floats only when you switch tabs.', { icon: 'pip' }); }}>{pip.keepFloating ? 'Keep the video floating in other apps: On' : 'Keep the video floating in other apps: Off'}</Button>}
         {pip.supported && <Button variant="secondary" icon="pip" onClick={() => { pip.setAutoFloat(!pip.autoFloat); toast(pip.autoFloat ? 'The video keeps playing in the background when you switch tabs.' : 'The video floats in a small window when you switch tabs.', { icon: 'pip' }); }}>{pip.autoFloat ? 'Float video when I switch tabs: On' : 'Float video when I switch tabs: Off'}</Button>}
         <Button variant="secondary" icon="copy" onClick={async () => { if (await copyText(room.code)) toast('Room code copied.', { icon: 'copy' }); }}>Copy room code</Button>
         <Button variant="quiet-danger" icon={admin ? 'trash' : 'logout'} onClick={async () => {

@@ -34,6 +34,8 @@ export type PlayerEvents = {
   onEnded?: (videoId: string) => void;
   onUserControl?: (action: 'play' | 'pause' | 'seek', position: number) => void;
   onError?: (message: string) => void;
+  /** The floating copy is showing moving video (used to fade out its still picture). */
+  onStarted?: () => void;
 };
 /**
  * `follow`: a silent copy that mirrors another player (the floating window). It starts muted, which browsers always
@@ -71,7 +73,7 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow }
           onReady: () => { if (!alive) return; if (isMirror) player.current?.mute?.(); setReady(true); reportTitle(); },
           onStateChange: (e: { data: number }) => {
             const p = player.current!; reportTitle();
-            if (isMirror) return; // the copy never speaks for the room
+            if (isMirror) { if (e.data === 1) ev.current.onStarted?.(); return; } // the copy never speaks for the room
             if (e.data === 0) { ev.current.onEnded?.(p.getVideoData().video_id); return; }
             if (Date.now() < st.current.quietUntil) return;
             if (e.data === 2 && st.current.expected !== 2) { st.current.expected = 2; user('pause', p.getCurrentTime()); }
