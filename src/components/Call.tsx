@@ -1,6 +1,7 @@
 // Voice and video calls in the browser, using the same signalling as the phone app (call inbox + per-person
 // signals, one RTCPeerConnection per other person, offers from the lower user ID, media state on a data channel).
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { AudioDeviceSheet, canPickSpeaker, loadAudioChoice, saveAudioChoice, useAudioDevices } from './AudioDevices';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { usePip, useWantPip } from '../lib/pip';
@@ -19,6 +20,10 @@ type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOf
 type Controls = { activeCode?: string; liveWith: number; phase: Phase; start: (code: string, members: CallPeer[], video: boolean, title: string) => void; open: () => void };
 const CallContext = createContext<Controls>({ liveWith: 0, phase: 'idle', start: () => {}, open: () => {} });
 export const useCall = () => useContext(CallContext);
+/** Microphone settings. `exact` when the person just picked it (fail loudly); `ideal` at call start (fall back quietly). */
+function micConstraints(id: string, exact: boolean): MediaTrackConstraints {
+  return { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(id ? { deviceId: exact ? { exact: id } : { ideal: id } } : {}) };
+}
 const VIDEO: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 }, facingMode: 'user' };
 
 export function CallProvider({ children }: React.PropsWithChildren) {
@@ -32,6 +37,9 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const [peerList, setPeerList] = useState<PeerView[]>([]);
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(true);
+  // Which microphone / speaker calls use ('' = the computer's default, which follows a newly connected headset).
+  const [audioChoice, setAudioChoice] = useState(loadAudioChoice);
+  const [audioSheet, setAudioSheet] = useState(false);
   const [error, setError] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -41,6 +49,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const early = useRef(new Map<string, Candidate[]>());
   const helloed = useRef(new Set<string>());
   const stream = useRef<MediaStream | null>(null);
+  const audioRef = useRef(audioChoice);
+  useEffect(() => { audioRef.current = audioChoice; }, [audioChoice]);
   const ice = useRef<RTCIceServer[] | null>(null);
   const mediaState = useRef({ cameraOff: true, muted: false });
   const tone = useRef<{ stop: () => void } | null>(null);
@@ -100,7 +110,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     if (!stream.current) {
       stopTone();
       let media: MediaStream;
-      try { media = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: target.video ? VIDEO : false }); }
+      try { media = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(audioRef.current.mic, false), video: target.video ? VIDEO : false }); }
       catch { throw new Error(target.video ? 'Allow camera and microphone for this site (the icon in the address bar), then try again.' : 'Allow the microphone for this site (the icon in the address bar), then try again.'); }
       if (callRef.current !== target) { media.getTracks().forEach(t => t.stop()); return false; }
       stream.current = media; setLocal(media);
@@ -108,6 +118,21 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     }
     if (!ice.current) ice.current = await latest.current.iceServers();
     return callRef.current === target;
+  }
+  /** Switch the call's microphone without reconnecting: the new mic replaces the old one for everyone. */
+  async function switchMic(id: string) {
+    const media = stream.current; if (!media) return;
+    let fresh: MediaStream;
+    try { fresh = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(id, true) }); }
+    catch { try { fresh = await navigator.mediaDevices.getUserMedia({ audio: micConstraints('', false) }); } catch { setError('Could not use that microphone.'); return; } }
+    const track = fresh.getAudioTracks()[0]; if (!track || stream.current !== media) { fresh.getTracks().forEach(x => x.stop()); return; }
+    track.enabled = !mediaState.current.muted;
+    await Promise.all([...peers.current.values()].map(p => {
+      const sender = p.pc.getTransceivers().find(x => x.sender.track?.kind === 'audio' || x.receiver.track?.kind === 'audio')?.sender;
+      return sender?.replaceTrack(track).catch(() => {});
+    }));
+    media.getAudioTracks().forEach(old => { media.removeTrack(old); old.stop(); });
+    media.addTrack(track);
   }
   function createPeer(person: CallPeer, target: ActiveCall, { offerer, ready }: { offerer: boolean; ready: boolean }) {
     removePeer(person.id);
@@ -302,6 +327,17 @@ export function CallProvider({ children }: React.PropsWithChildren) {
 
   const connected = phase === 'connected' || phase === 'reconnecting';
   const pip = usePip();
+  const devices = useAudioDevices(!!call);
+  // Automatic mic: when the computer's default microphone changes (a headset connected), move the call to it.
+  const lastDefault = useRef('');
+  useEffect(() => {
+    if (!devices.defaultMic) return;
+    const changed = lastDefault.current && lastDefault.current !== devices.defaultMic;
+    lastDefault.current = devices.defaultMic;
+    if (changed && !audioRef.current.mic && stream.current) void switchMic('');
+    // switchMic only reads refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [devices.defaultMic]);
   useWantPip('call', !!call);
   const inPip = !!pip.slots && !!call;
   const others = peerList.filter(p => p.state !== 'connecting' || p.stream);
@@ -312,13 +348,19 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const controls = <>
     {connected && <IconButton size="lg" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
     {connected && call?.video && <IconButton size="lg" icon={cameraOff ? 'videoOff' : 'video'} variant={cameraOff ? 'on' : undefined} label={cameraOff ? 'Turn camera on' : 'Turn camera off'} disabled={busy} onClick={() => void toggleCamera()} />}
+    {connected && <IconButton size="lg" icon="sliders" label="Audio: choose microphone and speaker" onClick={() => setAudioSheet(true)} />}
     {connected && call && <IconButton size="lg" icon="game" label="Play a game, the call continues" onClick={() => { setExpanded(false); nav(`/room/${call.code}?tab=play`); }} />}
     <IconButton size="lg" icon="hangup" variant="end" label={connected ? 'End call' : 'Cancel call'} onClick={() => finish()} />
   </>;
 
   return <CallContext.Provider value={{ activeCode: call?.code, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true) }}>
     {children}
-    {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} />)}
+    {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} sinkId={audioChoice.speaker} />)}
+    {audioSheet && call && <AudioDeviceSheet devices={devices} choice={audioChoice} onClose={() => setAudioSheet(false)} onChange={next => {
+      const micChanged = next.mic !== audioChoice.mic;
+      setAudioChoice(next); saveAudioChoice(next);
+      if (micChanged) void switchMic(next.mic);
+    }} />}
     {!call && error && <div className="toasts" style={{ bottom: 96 }}><div className="toast">{error}<button onClick={() => setError('')}>OK</button></div></div>}
     {call && phase === 'incoming' && <div className="scrim" style={{ zIndex: 95 }}>
       <div className="sheet col gap-20" role="alertdialog" aria-label={status} style={{ padding: 32, alignItems: 'center', textAlign: 'center', width: 'min(380px, 100%)' }}>
@@ -403,9 +445,11 @@ function PipTile({ p, video }: { p: PeerView; video: boolean }) {
   </div>;
 }
 /** Remote voices play through hidden audio elements so they keep going when the call window is minimised. */
-function RemoteAudio({ stream }: { stream: MediaStream | null }) {
+function RemoteAudio({ stream, sinkId }: { stream: MediaStream | null; sinkId: string }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => { if (ref.current && stream && ref.current.srcObject !== stream) { ref.current.srcObject = stream; void ref.current.play().catch(() => {}); } }, [stream]);
+  // The chosen speaker ('' = the computer's default). Only some browsers can choose (Chrome, Edge).
+  useEffect(() => { const el = ref.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null; if (el?.setSinkId && canPickSpeaker) void el.setSinkId(sinkId).catch(() => {}); }, [sinkId]);
   return <audio ref={ref} autoPlay />;
 }
 function useSpeaking(stream: MediaStream | null, enabled: boolean) {

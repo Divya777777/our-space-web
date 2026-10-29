@@ -41,7 +41,7 @@ export default function You() {
 
     <div className="section-head"><h2 className="h2">This browser</h2></div>
     <div className="glass panel list" style={{ padding: 8 }}>
-      {row('bell', 'Call alerts', perm === 'granted' ? 'On — you’ll see a notification when someone calls while this tab is in the background.' : perm === 'denied' ? 'Blocked in your browser settings for this site.' : 'Get a notification when someone calls while this tab is in the background.',
+      {row('bell', 'Call alerts', perm === 'granted' ? 'On — you’ll see a notification when someone calls while this tab is in the background. To turn it off, click the icon left of the address bar → Notifications.' : perm === 'denied' ? 'Off. To turn it on, click the icon left of the address bar → Notifications → Allow, then reload.' : 'Get a notification when someone calls while this tab is in the background.',
         perm === 'default' ? <Button size="sm" variant="secondary" onClick={async () => setPerm(await Notification.requestPermission())}>Turn on</Button> : undefined)}
       {row('phone', 'Bring chats from your phone', 'Scan a QR code with Our Space on your phone to copy your older private messages here.', <Button size="sm" variant="secondary" onClick={() => setLinking(true)}>Show QR code</Button>)}
       {row('lock', 'Private chat on this browser', 'Messages are end-to-end encrypted. New messages arrive here and on your phone automatically.')}

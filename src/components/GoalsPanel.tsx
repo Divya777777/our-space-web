@@ -33,8 +33,17 @@ export function GoalsPanel({ code, version }: { code: string; version?: number }
   const [filter, setFilter] = useState<'all' | 'together' | 'mine' | 'theirs'>('all');
   const [draft, setDraft] = useState<GoalDraft | null>(null);
   const [month, setMonth] = useState(false);
+  // Quick clicks on + / − / ✓ change the number at once and are saved together a moment after the last click.
+  // Clicks not saved yet win over a reload, so the count never jumps back.
+  const pending = useRef(new Map<string, { value: number; was: number; timer?: ReturnType<typeof setTimeout> }>());
+  const dataRef = useRef<GoalsToday | null>(data);
+  useEffect(() => { dataRef.current = data; }, [data]);
   const load = useCallback(async () => {
-    try { const next = await api.today(localDay()); cache.set(code, next); setData(next); setError(''); }
+    try {
+      const fetched = await api.today(localDay());
+      const next = pending.current.size ? { ...fetched, goals: fetched.goals.map(g => pending.current.has(g.id) ? { ...g, me: pending.current.get(g.id)!.value } : g) } : fetched;
+      cache.set(code, next); setData(next); setError('');
+    }
     catch (e) { setError((e as Error).message || 'Could not load goals.'); }
   }, [api, code]);
   useEffect(() => { void load(); const t = setInterval(() => { if (!document.hidden) void load(); }, 60000); return () => clearInterval(t); }, [load]);
@@ -44,10 +53,31 @@ export function GoalsPanel({ code, version }: { code: string; version?: number }
   if (!data) return error ? <Notice tone="error">{error} <button className="lav" onClick={() => void load()}>Try again</button></Notice> : <div className="col gap-8"><Skeleton h={150} /><Skeleton h={70} /><Skeleton h={70} /></div>;
   const partner = data.partner?.name.split(' ')[0] || 'Partner';
   const patch = (id: string, change: Partial<Goal>) => setData(d => d && { ...d, goals: d.goals.map(g => g.id === id ? { ...g, ...change } : g) });
-  const setValue = (g: Goal, value: number) => {
-    const was = g.me ?? 0; patch(g.id, { me: value });
-    if (was < g.target && value >= g.target) toast(`Done: ${g.name}`, { icon: 'check' });
-    void api.progress(g.id, localDay(), value).catch(e => { patch(g.id, { me: was }); toast((e as Error).message, { tone: 'error' }); });
+  const flush = (id: string) => {
+    const entry = pending.current.get(id); if (!entry) return;
+    entry.timer = undefined;
+    const sent = entry.value;
+    void api.progress(id, localDay(), sent).then(() => {
+      if (pending.current.get(id) === entry && entry.value === sent) pending.current.delete(id);
+    }).catch(e => {
+      if (pending.current.get(id) !== entry || entry.value !== sent) return;
+      pending.current.delete(id); patch(id, { me: entry.was }); toast((e as Error).message, { tone: 'error' });
+    });
+  };
+  /** `update` gets the newest value (including clicks not saved yet). */
+  const setValue = (g: Goal, update: (current: number) => number) => {
+    const entry = pending.current.get(g.id);
+    const before = entry ? entry.value : (dataRef.current?.goals.find(x => x.id === g.id)?.me ?? g.me ?? 0);
+    const value = update(before);
+    if (value === before) return;
+    patch(g.id, { me: value });
+    if (dataRef.current) dataRef.current = { ...dataRef.current, goals: dataRef.current.goals.map(x => x.id === g.id ? { ...x, me: value } : x) };
+    if (before < g.target && value >= g.target) toast(`Done: ${g.name}`, { icon: 'check' });
+    const next = entry || { value, was: before };
+    next.value = value;
+    if (next.timer) clearTimeout(next.timer);
+    next.timer = setTimeout(() => flush(g.id), 450);
+    pending.current.set(g.id, next);
   };
   const mineList = data.goals.filter(g => g.me !== null && !g.invited);
   const theirList = data.goals.filter(g => g.them !== null && !g.pending);
@@ -76,8 +106,7 @@ export function GoalsPanel({ code, version }: { code: string; version?: number }
   </div>;
 }
 
-function GoalCard({ g, partner, onSet, onCheer, onJoin, onRemove }: { g: Goal; partner: string; onSet: (v: number) => void; onCheer: () => void; onJoin: () => void; onRemove: () => void }) {
-  const me = g.me ?? 0;
+function GoalCard({ g, partner, onSet, onCheer, onJoin, onRemove }: { g: Goal; partner: string; onSet: (update: (current: number) => number) => void; onCheer: () => void; onJoin: () => void; onRemove: () => void }) {
   const text = (who: 'me' | 'them') => g.track === 'check' ? (done(g, who) ? 'Done' : 'Not yet') : `${fmt(g[who] ?? 0)} / ${fmt(g.target)}${g.unit ? ' ' + g.unit : ''}`;
   const bar = (who: 'me' | 'them', color: string, name: string) => <div className="row gap-8"><span className="tiny muted ellipsis" style={{ width: 52 }}>{name}</span><div className="bar"><i style={{ width: `${Math.min(100, (g[who] ?? 0) / g.target * 100)}%`, background: color }} /></div><span className="tiny" style={{ minWidth: 92, textAlign: 'right' }}>{done(g, who) && <span className="mint">✓ </span>}{text(who)}</span></div>;
   let control: React.ReactNode = null;
@@ -85,8 +114,8 @@ function GoalCard({ g, partner, onSet, onCheer, onJoin, onRemove }: { g: Goal; p
   if (g.invited) control = <Button size="sm" onClick={onJoin}>Join</Button>;
   else if (phoneOnly) control = null;
   else if (g.owner !== 'them') control = g.track === 'check'
-    ? <button role="checkbox" aria-checked={done(g, 'me')} aria-label={`Mark ${g.name} done`} onClick={() => onSet(done(g, 'me') ? 0 : 1)} className="center" style={{ width: 40, height: 40, borderRadius: 12, border: `2px solid ${done(g, 'me') ? 'var(--mint)' : 'var(--edge-lit)'}`, background: done(g, 'me') ? 'var(--mint)' : 'transparent', color: 'var(--void)' }}>{done(g, 'me') && <Icon name="check" stroke={2.6} />}</button>
-    : <div className="row gap-8"><IconButton size="sm" icon="minus" label={`Remove ${g.inc} ${g.unit}`} onClick={() => onSet(Math.max(0, me - g.inc))} /><button className="btn primary sm" style={{ padding: '0 12px' }} onClick={() => onSet(Math.min(g.target * 3, me + g.inc))} aria-label={`Add ${g.inc} ${g.unit}`}><Icon name="plus" size={15} stroke={2.4} />{fmt(g.inc)}</button></div>;
+    ? <button role="checkbox" aria-checked={done(g, 'me')} aria-label={`Mark ${g.name} done`} onClick={() => onSet(cur => (cur >= g.target ? 0 : 1))} className="center" style={{ width: 40, height: 40, borderRadius: 12, border: `2px solid ${done(g, 'me') ? 'var(--mint)' : 'var(--edge-lit)'}`, background: done(g, 'me') ? 'var(--mint)' : 'transparent', color: 'var(--void)' }}>{done(g, 'me') && <Icon name="check" stroke={2.6} />}</button>
+    : <div className="row gap-8"><IconButton size="sm" icon="minus" label={`Remove ${g.inc} ${g.unit}`} onClick={() => onSet(cur => Math.max(0, cur - g.inc))} /><button className="btn primary sm" style={{ padding: '0 12px' }} onClick={() => onSet(cur => Math.min(g.target * 3, cur + g.inc))} aria-label={`Add ${g.inc} ${g.unit}`}><Icon name="plus" size={15} stroke={2.4} />{fmt(g.inc)}</button></div>;
   else control = <Button size="sm" variant="secondary" onClick={onCheer}>{g.cheered ? 'Cheered' : 'Cheer'}</Button>;
   return <div className="inset col gap-8" style={{ padding: 14 }}>
     <div className="row">
