@@ -61,9 +61,14 @@ export function InstallSheet({ service, onDone, onClose }: { service: Service; o
       <p className="small muted" role="status" style={{ textAlign: 'center', minHeight: 20 }}>{installed ? `Ready. Opening ${name}…` : 'Choose “Add to Chrome” in the window on top — Chrome asks once.'}</p>
       {!installed && EXTENSION_URL && <button className="btn ghost sm" onClick={() => openStore()}>Show the window again</button>}
       {!installed && !EXTENSION_URL && <div className="col gap-8" style={{ width: '100%' }}>
-        {/* Only until the extension is on the Chrome Web Store (VITE_EXTENSION_URL). */}
-        <a className="btn secondary sm" href={`${import.meta.env.BASE_URL}ourspace-extension.zip`} download><Icon name="download" size={14} />Test version: download</a>
-        <p className="tiny quiet" style={{ textAlign: 'center' }}>Test version: unzip, open chrome://extensions, turn on Developer mode, Load unpacked.</p>
+        {/* Test version only — goes away once the extension is on the Chrome Web Store (VITE_EXTENSION_URL). */}
+        <p className="small" style={{ fontWeight: 600 }}>Test version — add it once:</p>
+        <ol className="install-steps small">
+          <li>It’s downloading now (<b>ourspace-extension.zip</b>). Double-click it in Downloads to unzip.</li>
+          <li>Open a new tab, go to <b>chrome://extensions</b> and turn on <b>Developer mode</b> (top right).</li>
+          <li>Click <b>Load unpacked</b> and pick the <b>ourspace-extension</b> folder. This page carries on by itself.</li>
+        </ol>
+        <a className="btn ghost sm" href={`${import.meta.env.BASE_URL}ourspace-extension.zip`} download>Download again</a>
       </div>}
     </div>
   </Sheet>;

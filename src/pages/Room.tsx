@@ -23,7 +23,7 @@ import { Avatar, Button, IconButton, Notice, Segments, Sheet, Skeleton, copyText
 import { Icon } from '../components/Icon';
 import { Star } from '../components/Brand';
 import { InstallSheet, PartyCard, PartyInvite, StreamTiles } from '../components/StreamParty';
-import { Service, extension, openStore, useWatchParty } from '../lib/watchParty';
+import { Service, downloadTestVersion, extension, openStore, useWatchParty } from '../lib/watchParty';
 
 type Tab = 'chat' | 'next' | 'people' | 'goals' | 'play';
 const TABS: Tab[] = ['chat', 'next', 'people', 'goals', 'play'];
@@ -128,7 +128,7 @@ export default function RoomPage() {
   const pickService = (service: Service, host = true) => {
     if (!others.length) { toast('Invite someone to this room first — then watch together.', { tone: 'error' }); return; }
     // Not installed yet: open the store window on this same click (browsers block it later), and wait.
-    if (!extension.version) { openStore(); setInstallFor({ service, host }); return; }
+    if (!extension.version) { if (!openStore()) downloadTestVersion(); setInstallFor({ service, host }); return; }
     beginParty(service, host, true);
   };
   const floatNow = () => { if (pip.keepFloating && pip.supported && !pip.slots) void pip.open(); };

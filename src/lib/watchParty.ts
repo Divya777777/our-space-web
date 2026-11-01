@@ -26,14 +26,30 @@ export const extension = {
   get version() { return version || document.documentElement.dataset.ourspaceExt || ''; },
   send(msg: ExtMsg) { window.postMessage({ src: 'ourspace-app', ...msg }, location.origin); },
   on(fn: (m: ExtMsg) => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
-  ping() { window.postMessage({ src: 'ourspace-app', type: 'ping' }, location.origin); },
+  ping() {
+    window.postMessage({ src: 'ourspace-app', type: 'ping' }, location.origin);
+    // Straight to the extension (answers right after it's added, even before this page's own script is in).
+    const rt = (window as unknown as { chrome?: { runtime?: { sendMessage?: (id: string, m: unknown, cb: (r?: { version?: string }) => void) => void; lastError?: unknown } } }).chrome?.runtime;
+    if (!rt?.sendMessage) return;
+    for (const id of EXTENSION_IDS) {
+      try { rt.sendMessage(id, { type: 'ping' }, r => { void rt.lastError; if (r?.version && r.version !== version) { version = r.version; document.documentElement.dataset.ourspaceExt = r.version; subs.forEach(f => f()); } }); } catch { /* not installed */ }
+    }
+  },
 };
+if (typeof window !== 'undefined') setTimeout(() => extension.ping(), 0);
 export function useExtension() {
   return useSyncExternalStore(fn => { subs.add(fn); return () => { subs.delete(fn); }; }, () => version || document.documentElement.dataset.ourspaceExt || '');
 }
 /** Extensions work in Chrome, Edge, Brave and Opera on a computer. */
 export const browserSupported = typeof navigator !== 'undefined' && /Chrome\/|Chromium\//.test(navigator.userAgent) && !/Mobile|Android/i.test(navigator.userAgent);
 export const EXTENSION_URL = (import.meta.env as Record<string, string | undefined>).VITE_EXTENSION_URL || '';
+/** The store version's ID (once published) and the test version's fixed ID (from the key in extension/manifest.json). */
+const EXTENSION_IDS = [(import.meta.env as Record<string, string | undefined>).VITE_EXTENSION_ID, 'bodhgadmdeebjmklhkgjlmcjlnnibino'].filter(Boolean) as string[];
+/** Test version (before the store): start the download from the click. */
+export function downloadTestVersion() {
+  const a = document.createElement('a'); a.href = `${import.meta.env.BASE_URL}ourspace-extension.zip`; a.download = 'ourspace-extension.zip';
+  document.body.appendChild(a); a.click(); a.remove();
+}
 /** The store window we opened for the one-time install (closed again once the extension is detected). */
 let storeWindow: Window | null = null;
 /** Open the extension's store page in a small window on top. Call it straight from the click, so the browser allows it. */
