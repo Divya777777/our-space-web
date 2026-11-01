@@ -79,7 +79,6 @@ export default function RoomPage() {
   const gate = useGatedPlayback(code, room?.playback);
   const pip = usePip();
   // Offer PiP while something is playing; once floating, keep it there even when paused.
-  useWantPip('video', !!gate.playback && (gate.playback.playing || !!pip.slots));
   useEffect(() => { setPlayerError(''); }, [room?.playback?.videoId]);
   // Press P to float the video. Browsers only open the floating window right after a click or key press on the
   // page, so this is the quick way before switching to another app (a tab switch floats it by itself).
@@ -108,6 +107,9 @@ export default function RoomPage() {
   const watch = useWatchParty(call, space.user.name);
   const [installFor, setInstallFor] = useState<{ service: Service; host: boolean } | null>(null);
   const [liveIn, setLiveIn] = useState<object | null>(null);
+  // Watching Netflix / Prime together: the floating window shows only the call's faces, never the room's YouTube video.
+  const partyOn = !!watch.party.service;
+  useWantPip('video', !partyOn && !!gate.playback && (gate.playback.playing || !!pip.slots));
   if (problem === 'missing') return <Gone text="This room was closed, or the code is wrong." />;
   if (problem === 'waiting') return <Gone text="You’re not in this room yet." action={<Button onClick={() => nav(`/join?code=${code}`)}>Ask to join</Button>} />;
   if (!room) return <div className="room"><div className="room-top"><Skeleton h={44} w={260} /></div><div className="stage"><Skeleton h={420} r={30} /></div><div className="side glass"><Skeleton h={600} /></div></div>;
@@ -151,7 +153,7 @@ export default function RoomPage() {
           onEnded: id => { const key = `${id}:${pb?.revision}`; if (ended.current === key || !room.queue?.length) return; ended.current = key; void space.queue(code, 'next', { from: id }).catch(() => { ended.current = ''; }); },
           onUserControl: (action, at) => { if (!pb) return; if (gate.waiting) { if (action === 'play') gate.join(); return; } void space.play(code, pb.videoId, action === 'seek' ? pb.playing : action === 'play', at).catch(fail); },
         }} /> : null;
-  const floating = !!pip.slots && !!playerEl;
+  const floating = !!pip.slots && !!playerEl && !partyOn;
   // The floating window shows a muted copy that follows the main player (which keeps playing the sound here).
   const mainTime = () => { const h = heard.current; if (!h) return null; const age = Date.now() - h.at; if (gate.playback?.playing && age > 3000) return null; return h.t + (gate.playback?.playing ? age / 1000 : 0); };
   // Until the floating copy is actually playing, the window shows the video's picture instead of black.
