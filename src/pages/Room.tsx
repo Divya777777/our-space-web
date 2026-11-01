@@ -22,6 +22,8 @@ import { useCall } from '../components/Call';
 import { Avatar, Button, IconButton, Notice, Segments, Sheet, Skeleton, copyText, firstName, useConfirm, useToast } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { Star } from '../components/Brand';
+import { InstallSheet, PartyCard, PartyInvite, StreamTiles } from '../components/StreamParty';
+import { Service, extension, openStore, useWatchParty } from '../lib/watchParty';
 
 type Tab = 'chat' | 'next' | 'people' | 'goals' | 'play';
 const TABS: Tab[] = ['chat', 'next', 'people', 'goals', 'play'];
@@ -102,6 +104,10 @@ export default function RoomPage() {
   useEffect(() => { document.title = room ? `${room.name} · Our Space` : 'Our Space'; return () => { document.title = 'Our Space'; }; }, [room?.name]);
 
   const others = useMemo(() => (room?.members || []).filter(m => m.id !== space.user.id), [room?.members, space.user.id]);
+  // Netflix / Prime Video together (web + extension), synced over the call.
+  const watch = useWatchParty(call, space.user.name);
+  const [installFor, setInstallFor] = useState<{ service: Service; host: boolean } | null>(null);
+  const [liveIn, setLiveIn] = useState<object | null>(null);
   if (problem === 'missing') return <Gone text="This room was closed, or the code is wrong." />;
   if (problem === 'waiting') return <Gone text="You’re not in this room yet." action={<Button onClick={() => nav(`/join?code=${code}`)}>Ask to join</Button>} />;
   if (!room) return <div className="room"><div className="room-top"><Skeleton h={44} w={260} /></div><div className="stage"><Skeleton h={420} r={30} /></div><div className="side glass"><Skeleton h={600} /></div></div>;
@@ -111,6 +117,20 @@ export default function RoomPage() {
   const fail = (e: unknown) => toast((e as Error).message || 'Could not update playback. Try again.', { tone: 'error' });
   // "Keep the video floating": open the small window on the click that starts playback (browsers only allow a
   // window right after a click), so it's already there when you switch to another app.
+  const beginParty = (service: Service, host: boolean, fromClick: boolean) => {
+    // The faces float over Netflix / Prime: on a call → picture-in-picture now (needs this click); no call → call them (video).
+    if (call.activeCode === code) { call.minimize(); if (fromClick && pip.supported && !pip.slots) void pip.open(); }
+    else if (!call.activeCode && others.length) call.start(code, others, true, others.length > 1 ? room.name : others[0].name);
+    // Two soundtracks at once would be a mess: pause the room's YouTube video for everyone.
+    if (pb?.playing) void space.play(code, pb.videoId, false, position.current || positionNow(pb)).catch(() => {});
+    watch.start(service, host);
+  };
+  const pickService = (service: Service, host = true) => {
+    if (!others.length) { toast('Invite someone to this room first — then watch together.', { tone: 'error' }); return; }
+    // Not installed yet: open the store window on this same click (browsers block it later), and wait.
+    if (!extension.version) { openStore(); setInstallFor({ service, host }); return; }
+    beginParty(service, host, true);
+  };
   const floatNow = () => { if (pip.keepFloating && pip.supported && !pip.slots) void pip.open(); };
   const playNow = (t: Track, context?: Track[]) => { floatNow(); gate.join(); void space.play(code, t.videoId, true, 0, context).catch(fail); };
   const toggle = () => {
@@ -135,8 +155,7 @@ export default function RoomPage() {
   // The floating window shows a muted copy that follows the main player (which keeps playing the sound here).
   const mainTime = () => { const h = heard.current; if (!h) return null; const age = Date.now() - h.at; if (gate.playback?.playing && age > 3000) return null; return h.t + (gate.playback?.playing ? age / 1000 : 0); };
   // Until the floating copy is actually playing, the window shows the video's picture instead of black.
-  // Remembered per floating window (a new window starts with the picture again).
-  const [liveIn, setLiveIn] = useState<object | null>(null);
+  // Remembered per floating window (a new window starts with the picture again). (State declared above the early returns.)
   const pipLive = !!pip.slots && liveIn === pip.slots;
   const pipPlayer = floating && gate.playback ? <YouTubePlayer key={`pip-${code}`} playback={gate.playback} events={{ onStarted: () => setLiveIn(pip.slots) }} follow={mainTime} /> : null;
   const popOut = () => void pip.open().then(ok => { if (!ok) toast('Your browser didn’t open the floating window. Try Chrome or Edge on a computer.', { tone: 'error' }); });
@@ -190,8 +209,12 @@ export default function RoomPage() {
           <IconButton size="sm" icon="back" label="Back to the room" onClick={() => { pip.close(); window.focus(); }} />
         </div>
       </div>, pip.slots!.video)}
+      {watch.party.invite && !watch.party.service && <PartyInvite invite={watch.party.invite} onJoin={() => pickService(watch.party.invite!.service, false)} onDismiss={watch.dismissInvite} />}
+      <PartyCard party={watch.party} onToggle={watch.togglePlay} onResync={watch.resync} onEnd={() => watch.end()} />
       <YouTubeSearch saved={space.playlists} onPlay={t => playNow(t)} onQueue={pb ? t => void space.queue(code, 'add', { videoId: t.videoId, title: t.title }).then(() => toast('Added to Up next', { icon: 'queue' })).catch(fail) : undefined} />
+      {!watch.party.service && <StreamTiles onPick={s => pickService(s)} />}
       {others.length === 0 && <InviteCard room={room} />}
+      {installFor && <InstallSheet service={installFor.service} onClose={() => setInstallFor(null)} onDone={() => { const f = installFor; setInstallFor(null); beginParty(f.service, f.host, false); }} />}
       <div className="col gap-8"><p className="h3">Plans</p><Plans code={code} compact /></div>
     </section>
     <aside className="side glass" aria-label="Room panel">

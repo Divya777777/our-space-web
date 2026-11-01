@@ -32,6 +32,7 @@ jobs:
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID || '351421523260-04n8q3b4g79ofjpins9sd4m12933b9rl.apps.googleusercontent.com' }}
           VITE_ANDROID_URL: ${{ vars.VITE_ANDROID_URL }}
           VITE_IOS_URL: ${{ vars.VITE_IOS_URL }}
+          VITE_EXTENSION_URL: ${{ vars.VITE_EXTENSION_URL }}
       # GitHub Pages has no rewrites: serve the app for every path (room links, /join?code=…).
       - run: cp dist/index.html dist/404.html && touch dist/.nojekyll
       - uses: actions/configure-pages@v5

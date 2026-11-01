@@ -17,8 +17,15 @@ type Description = RTCSessionDescriptionInit;
 type ActiveCall = { id: string; code: string; video: boolean; title: string; starter: CallPeer; members: CallPeer[]; offer?: Description; mine: boolean };
 type Peer = { id: string; name: string; pc: RTCPeerConnection; stream: MediaStream | null; channel: RTCDataChannel | null; sender: RTCRtpSender | null; state: 'connecting' | 'connected' | 'reconnecting'; cameraOff: boolean; muted: boolean; out: { ready: boolean; queue: Candidate[]; timer?: ReturnType<typeof setTimeout> } };
 type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; state: Peer['state'] };
-type Controls = { activeCode?: string; liveWith: number; phase: Phase; start: (code: string, members: CallPeer[], video: boolean, title: string) => void; open: () => void };
-const CallContext = createContext<Controls>({ liveWith: 0, phase: 'idle', start: () => {}, open: () => {} });
+/** Messages for features riding on the call (Netflix / Prime watch party): sent to everyone on the call over the
+ * peer-to-peer data channel. Phones ignore what they don't know. */
+export type PartyMessage = { w: 'party' } & Record<string, unknown>;
+type PartyListener = (msg: PartyMessage, from: { id: string; name: string }) => void;
+type Controls = { activeCode?: string; liveWith: number; phase: Phase; start: (code: string, members: CallPeer[], video: boolean, title: string) => void; open: () => void;
+  /** Send to everyone connected on the call; returns how many received it. */ sendParty: (msg: PartyMessage) => number; onParty: (fn: PartyListener) => () => void;
+  /** Collapse the call into the room (or picture-in-picture), e.g. while watching on another site. */ minimize: () => void };
+const partyListeners = new Set<PartyListener>();
+const CallContext = createContext<Controls>({ liveWith: 0, phase: 'idle', start: () => {}, open: () => {}, sendParty: () => 0, onParty: () => () => {}, minimize: () => {} });
 export const useCall = () => useContext(CallContext);
 /** Microphone settings. `exact` when the person just picked it (fail loudly); `ideal` at call start (fall back quietly). */
 function micConstraints(id: string, exact: boolean): MediaTrackConstraints {
@@ -118,7 +125,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   function attach(peer: Peer, ch: RTCDataChannel) {
     peer.channel = ch;
     ch.onopen = () => shareMedia(ch);
-    ch.onmessage = e => { if (peer.channel !== ch) return; try { const s = JSON.parse(String(e.data)); if (typeof s.cameraOff === 'boolean') peer.cameraOff = s.cameraOff; if (typeof s.muted === 'boolean') peer.muted = s.muted; refresh(); } catch { /* ignore */ } };
+    ch.onmessage = e => { if (peer.channel !== ch) return; try { const s = JSON.parse(String(e.data)); if (s && s.w === 'party') { partyListeners.forEach(fn => { try { fn(s as PartyMessage, { id: peer.id, name: peer.name }); } catch { /* listener error */ } }); return; } if (typeof s.cameraOff === 'boolean') peer.cameraOff = s.cameraOff; if (typeof s.muted === 'boolean') peer.muted = s.muted; refresh(); } catch { /* ignore */ } };
   }
   async function prepare(target: ActiveCall) {
     if (!stream.current) {
@@ -386,7 +393,9 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     <IconButton size="lg" icon="hangup" variant="end" label={connected ? 'End call' : 'Cancel call'} onClick={() => finish()} />
   </>;
 
-  return <CallContext.Provider value={{ activeCode: call?.code, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true) }}>
+  const sendParty = (msg: PartyMessage) => { const text = JSON.stringify(msg); let n = 0; for (const p of peers.current.values()) if (p.channel?.readyState === 'open') { try { p.channel.send(text); n++; } catch { /* closing */ } } return n; };
+  const onParty = (fn: PartyListener) => { partyListeners.add(fn); return () => { partyListeners.delete(fn); }; };
+  return <CallContext.Provider value={{ activeCode: call?.code, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false) }}>
     {children}
     {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} sinkId={speakerId} />)}
     {audioSheet && call && <AudioDeviceSheet devices={devices} inUse={micLabel} choice={audioChoice} onClose={() => setAudioSheet(false)} onChange={next => {

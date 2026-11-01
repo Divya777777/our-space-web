@@ -553,3 +553,61 @@ textarea.input { height: auto; padding: 12px 16px; resize: vertical; min-height:
 .pip-frame-doc, .pip-frame-doc body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 .pip-video-slot { position: fixed; inset: 0; }
 .screen-over { z-index: 1; }
+
+/* ---------- Netflix & Prime Video together ---------- */
+.stream-tiles { display: flex; flex-direction: column; gap: 12px; }
+.stream-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.stream-tile { --c: #E50914; --g: rgba(229,9,20,.45); position: relative; isolation: isolate; overflow: hidden; display: flex; align-items: center; gap: 14px; padding: 16px 16px 16px 14px; border-radius: 24px; text-align: left; color: var(--text);
+  background: linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.03)); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(22px) saturate(1.3); -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 20px 40px -24px rgba(0,0,0,.8); transition: transform .45s cubic-bezier(.2,1.3,.4,1), box-shadow .3s, border-color .3s; }
+.stream-tile.prime { --c: #1FA2FF; --g: rgba(31,162,255,.45); }
+.stream-tile::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; z-index: -1;
+  background: conic-gradient(from var(--spin, 0deg), transparent 0 60%, var(--c) 75%, transparent 90%); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; opacity: 0; transition: opacity .3s; animation: spin-border 3.2s linear infinite; }
+.stream-glow { position: absolute; width: 180px; height: 180px; left: -40px; top: -90px; border-radius: 50%; background: radial-gradient(circle, var(--g), transparent 65%); z-index: -1; filter: blur(8px); transition: transform .6s cubic-bezier(.2,1,.3,1), opacity .4s; opacity: .55; }
+.stream-tile:hover { transform: translateY(-4px) scale(1.015); border-color: transparent; box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 26px 50px -22px var(--g); }
+.stream-tile:hover::before { opacity: 1; }
+.stream-tile:hover .stream-glow { transform: translate(60px, 40px) scale(1.25); opacity: .9; }
+.stream-tile:active { transform: translateY(-1px) scale(.99); }
+.stream-name { font-weight: 700; font-size: 17px; letter-spacing: -.01em; }
+.stream-go { margin-left: auto; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.1); color: var(--text); transition: background .3s, transform .4s cubic-bezier(.2,1.4,.4,1); }
+.stream-tile:hover .stream-go { background: var(--c); transform: scale(1.1) rotate(-8deg); }
+@property --spin { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@keyframes spin-border { to { --spin: 360deg; } }
+
+.svc-mark { flex: none; display: grid; place-items: center; border-radius: 30%; font-weight: 800; letter-spacing: -.04em; color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 10px 24px -8px rgba(0,0,0,.6); }
+.svc-mark.netflix { background: linear-gradient(150deg, #FF3B45, #B1060F); }
+.svc-mark.prime { background: linear-gradient(150deg, #48B8FF, #0B6BC2); }
+
+.install { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 4px 0 2px; }
+.install-ring { position: relative; width: 140px; height: 140px; display: grid; place-items: center; }
+.install-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.install-ring .track { fill: none; stroke: rgba(255,255,255,.1); stroke-width: 8; }
+.install-ring .fill { fill: none; stroke: var(--svc, var(--lav)); stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset .35s ease, stroke .4s; filter: drop-shadow(0 0 10px var(--svc, var(--lav))); }
+.install-ring.done .fill { stroke: var(--mint); filter: drop-shadow(0 0 14px var(--mint)); }
+.install-ring.busy::after { content: ''; position: absolute; inset: 18px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.08), transparent 70%); animation: breathe 1.8s ease-in-out infinite; }
+.install-pct { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.install-ring.done .install-pct { color: var(--mint); animation: pop .5s cubic-bezier(.2,1.6,.4,1); }
+.install-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
+.install-steps b { color: var(--text); }
+@keyframes breathe { 50% { transform: scale(1.08); opacity: .6; } }
+@keyframes pop { from { transform: scale(.4); opacity: 0; } }
+
+.party-invite { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; border-radius: 22px; animation: slide-in .6s cubic-bezier(.2,1.3,.4,1); }
+.party-invite.netflix { box-shadow: 0 18px 40px -22px rgba(229,9,20,.6); }
+.party-invite.prime { box-shadow: 0 18px 40px -22px rgba(31,162,255,.6); }
+@keyframes slide-in { from { opacity: 0; transform: translateY(-14px) scale(.97); } }
+
+.party-card { position: relative; overflow: hidden; isolation: isolate; display: flex; flex-direction: column; gap: 14px; padding: 20px; border-radius: 28px; animation: slide-in .7s cubic-bezier(.2,1.2,.4,1); }
+.party-aura { position: absolute; inset: -40%; z-index: -1; opacity: .5; filter: blur(40px);
+  background: radial-gradient(40% 40% at 20% 30%, var(--a1, rgba(229,9,20,.5)), transparent 70%), radial-gradient(35% 35% at 80% 70%, var(--a2, rgba(200,182,255,.35)), transparent 70%); animation: drift 14s ease-in-out infinite alternate; }
+.party-card.prime .party-aura { --a1: rgba(31,162,255,.5); }
+.party-card.synced .party-aura { --a2: rgba(182,221,207,.4); }
+@keyframes drift { to { transform: translate(8%, -6%) rotate(12deg) scale(1.1); } }
+.sync-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gold); flex: none; box-shadow: 0 0 0 0 rgba(230,201,148,.5); animation: live 1.6s infinite; }
+.sync-dot.synced { background: var(--mint); box-shadow: 0 0 0 0 rgba(182,221,207,.5); }
+.sync-dot.syncing { background: var(--lav); }
+.party-progress { position: relative; height: 22px; display: flex; align-items: center; }
+.party-progress::before { content: ''; position: absolute; left: 0; right: 0; height: 4px; border-radius: 2px; background: rgba(255,255,255,.12); }
+.party-progress i { position: absolute; left: 0; height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--lav), var(--mint)); transition: width 1s linear; }
+.party-progress span { margin-left: auto; position: relative; top: 14px; }
+@media (prefers-reduced-motion: reduce) { .stream-tile::before, .party-aura, .install-ring.busy::after, .sync-dot { animation: none; } }
