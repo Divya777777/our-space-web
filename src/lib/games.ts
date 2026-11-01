@@ -8,7 +8,8 @@ export type Turn = { id: string; from: string; fromName: string; at: number; str
 export type TdView = { version: number; decks: { sweet: boolean; fun: boolean; spicy: boolean }; spicyAsked: string[]; spicyOn: boolean; turn: string; turnName: string; card: { kind: 'truth' | 'dare'; deck: string; text: string } | null; swaps: Record<string, number>; need: number };
 export type QuizQuestion = { id?: number; q: string; you?: string; opts: string[] };
 export type QuizState = { questions: QuizQuestion[]; ids?: number[]; answered: boolean; myAnswers: number[] | null; people: { id: string; name: string; ready: boolean; guessed: boolean; score: number | null; answers: number[] | null; guesses: number[] | null; questions?: QuizQuestion[] | null }[] };
-export type Hub = { month: string; partner: { id: string; name: string } | null; scores: { id: string; name: string; points: number }[]; live: { scribble: { drawer: string; drawerName: string; phase: string } | null; td: { turnName: string } | null }; turns: { id: string; fromName: string; at: number }[]; quiz: { ready: { id: string; name: string }[]; answered: boolean } };
+export type QuizAsk = { id: string; from: string; fromName: string; about: string; aboutName: string; mine: boolean; forMe: boolean; questions: QuizQuestion[]; guesses: number[]; truth: number[] | null; score: number | null; at: number; checkedAt: number | null };
+export type Hub = { month: string; partner: { id: string; name: string } | null; scores: { id: string; name: string; points: number }[]; live: { scribble: { drawer: string; drawerName: string; phase: string } | null; td: { turnName: string } | null }; turns: { id: string; fromName: string; at: number }[]; quiz: { ready: { id: string; name: string }[]; answered: boolean; toCheck?: { id: string; fromName: string }[] } };
 
 export type GamesApi = {
   hub(): Promise<Hub>;
@@ -26,6 +27,9 @@ export type GamesApi = {
   quiz(): Promise<QuizState>;
   quizAnswer(answers: number[], ids?: number[]): Promise<QuizState>;
   quizGuess(about: string, guesses: number[]): Promise<{ score: number; answers: number[] }>;
+  asks(): Promise<QuizAsk[]>;
+  ask(about: string, ids: number[] | undefined, guesses: number[]): Promise<QuizAsk>;
+  check(id: string, truth: number[]): Promise<QuizAsk>;
 };
 type Api = <T>(path: string, body?: unknown, method?: string) => Promise<T>;
 export function liveGames(api: Api, code: string): GamesApi {
@@ -44,6 +48,9 @@ export function liveGames(api: Api, code: string): GamesApi {
     quiz: () => api<QuizState>(`${r}/quiz`),
     quizAnswer: (answers, ids) => api<QuizState>(`${r}/quiz/answers`, { answers, ids }, 'POST'),
     quizGuess: (about, guesses) => api(`${r}/quiz/guess`, { about, guesses }, 'POST'),
+    asks: async () => (await api<{ asks: QuizAsk[] }>(`${r}/quiz/asks`)).asks,
+    ask: (about, ids, guesses) => api<QuizAsk>(`${r}/quiz/asks`, { about, ids, guesses }, 'POST'),
+    check: (id, truth) => api<QuizAsk>(`${r}/quiz/asks/${id}/check`, { truth }, 'POST'),
   };
 }
 

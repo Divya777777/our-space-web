@@ -1,7 +1,7 @@
 // Play: Scribble (live on a call, or draw and send), Truth or Dare (live on a call), "How well do you know me?" and scores.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSpace } from '../lib/space';
-import { GamesApi, Hub, QuizState, ScribbleView, Stroke, TdView, Turn, liveGames } from '../lib/games';
+import { GamesApi, Hub, QuizAsk, QuizQuestion, QuizState, ScribbleView, Stroke, TdView, Turn, liveGames } from '../lib/games';
 import { useCall } from './Call';
 import { Button, Notice, Sheet, ago, firstName, useToast } from './ui';
 import { Icon, IconName } from './Icon';
@@ -52,11 +52,11 @@ export function PlayPanel({ code, onShare }: { code: string; onShare: (text: str
     {hub?.live.scribble && hub.live.scribble.phase !== 'over' && live && banner('#C8B6FF', 'pencil', `${firstName(hub.live.scribble.drawerName)} is playing Scribble`, 'Join in and guess the drawing', 'Join', () => setOpen('live'))}
     {hub?.live.td && live && banner('#F2AAAA', 'cards', 'Truth or Dare is on', hub.live.td.turnName === 'You' ? 'Your turn' : `${firstName(hub.live.td.turnName)}’s turn`, 'Join', () => void td(true))}
     {hub?.turns.map(t => <div key={t.id}>{banner('#E6C994', 'pencil', `${firstName(t.fromName)} drew something for you`, `${ago(t.at)} · 60 seconds to guess once you open it`, 'Guess', () => { setTurnId(t.id); setOpen('turn'); })}</div>)}
-    {hub?.quiz.ready.map(p => <div key={p.id}>{banner('#B6DDCF', 'heart', `${firstName(p.name)} answered 10 questions`, 'Guess what they said', 'Play', () => setOpen('quiz'))}</div>)}
+    {hub?.quiz.toCheck?.map(p => <div key={p.id}>{banner('#B6DDCF', 'heart', `${firstName(p.fromName)} answered 10 questions about you`, 'Check which ones they got right', 'Check', () => setOpen('quiz'))}</div>)}
     <p className="h3" style={{ marginTop: 4 }}>Play together</p>
     {game('pencil', '#C8B6FF', 'Scribble', live ? 'One draws, the others guess — live.' : 'Draw a word and send it.', live ? 'You’re on a call · 3 rounds · 60 s each' : '60 seconds to guess once it’s opened · +2 each', () => void scribble())}
     {game('cards', '#F2AAAA', 'Truth or Dare', 'Sweet, fun — or spicy if you all agree.', live ? 'You’re on a call · no time limit' : onCall ? 'Opens when someone joins your call' : 'Played live on a call', () => { if (live) void td(); else if (onCall) toast(`Waiting for ${partner === 'them' ? 'someone' : partner} to join the call.`); else toast('Truth or Dare is played on a call.', { action: { label: 'Call now', run: callRoom } }); })}
-    {game('heart', '#B6DDCF', hub?.partner ? `How well do you know ${partner}?` : 'How well do you know me?', 'Answer 10 questions about yourself. Guess theirs.', 'Anytime · about 2 minutes', () => setOpen('quiz'))}
+    {game('heart', '#B6DDCF', hub?.partner ? `How well do you know ${partner}?` : 'How well do you know me?', 'Answer 10 questions about them. They check, you both see the score.', 'Anytime · about 2 minutes', () => setOpen('quiz'))}
     {hub && <div className="inset row" style={{ padding: 14 }}><span className="gold"><Icon name="trophy" size={22} /></span><div className="grow"><p className="h3">{MONTHS[Number(hub.month.slice(5, 7)) - 1]} scores</p><p className="tiny muted">Scribble and quiz points</p></div>
       <p className="small" style={{ fontWeight: 600 }}>{hub.scores.slice(0, 3).map((x, i) => <span key={x.id} className={i ? 'mint' : 'lav'}>{i ? <span className="muted"> · </span> : null}{x === me ? 'You' : firstName(x.name)} {x.points}</span>)}</p></div>}
     {open === 'live' && <LiveScribble api={api} onClose={() => { setOpen(null); refresh(); }} />}
@@ -177,39 +177,50 @@ function TruthDare({ api, onClose }: { api: GamesApi; onClose: () => void }) {
     </div>
   </Sheet>;
 }
+/** Answer 10 questions about someone; they mark which you got right by picking their real answers. Both see the score. */
 function Quiz({ api, onClose, onShare }: { api: GamesApi; onClose: () => void; onShare: (t: string) => Promise<void> }) {
   const toast = useToast();
   const [state, setState] = useState<QuizState | null>(null);
-  const [mode, setMode] = useState<'pick' | 'guess' | 'answer' | 'result'>('pick');
-  const [who, setWho] = useState<QuizState['people'][number] | null>(null);
-  const [i, setI] = useState(0); const [picks, setPicks] = useState<number[]>([]);
-  const [result, setResult] = useState<{ score: number } | null>(null);
-  useEffect(() => { void api.quiz().then(q => { setState(q); const ready = q.people.find(p => p.ready && !p.guessed); if (ready) { setWho(ready); setMode('guess'); } else if (!q.answered) setMode('answer'); }).catch(e => toast(nice(e), { tone: 'error' })); }, [api, toast]);
+  const [asks, setAsks] = useState<QuizAsk[]>([]);
+  const [mode, setMode] = useState<'pick' | 'ask' | 'check' | 'view'>('pick');
+  const [who, setWho] = useState<{ id: string; name: string } | null>(null);
+  const [cur, setCur] = useState<QuizAsk | null>(null);
+  const [i, setI] = useState(0); const [picks, setPicks] = useState<number[]>([]); const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => { const [q, a] = await Promise.all([api.quiz(), api.asks().catch(() => [] as QuizAsk[])]); setState(q); setAsks(a); return a; }, [api]);
+  useEffect(() => { void load().then(a => { const todo = a.find(x => x.forMe && x.score === null); if (todo) { setCur(todo); setMode('check'); } }).catch(e => toast(nice(e), { tone: 'error' })); }, [load, toast]);
   if (!state) return <Sheet title="How well do you know me?" onClose={onClose}><p className="muted">Loading…</p></Sheet>;
-  const Q = mode === 'guess' && who?.questions?.length ? who.questions : state.questions;
-  const label = (q: { q: string; you?: string }) => mode === 'answer' ? q.you || q.q.replace('{name}’s', 'Your').replace('{name}', 'you') : q.q.replace(/\{name\}/g, firstName(who?.name || ''));
-  const begin = (m: 'answer' | 'guess', p?: QuizState['people'][number]) => { setMode(m); if (p) setWho(p); setI(0); setPicks([]); };
-  if (mode === 'pick') return <Sheet title="How well do you know me?" sub="Pick a person" onClose={onClose}>
-    {!state.answered ? <Button onClick={() => begin('answer')}>Answer 10 questions about yourself</Button> : <div className="inset row" style={{ padding: 12 }}><span className="grow small">Your answers are in. The others can guess them now.</span><Button size="sm" variant="secondary" onClick={() => begin('answer')}>Change</Button></div>}
-    {state.people.filter(p => p.ready).map(p => <button key={p.id} className="inset row" style={{ padding: 14, textAlign: 'left' }} disabled={p.guessed} onClick={() => begin('guess', p)}><span className="grow"><span className="h3" style={{ display: 'block' }}>Guess {firstName(p.name)}’s answers</span><span className="small muted">{p.guessed ? `You got ${p.score}/10` : '10 questions · about 2 minutes'}</span></span>{!p.guessed && <Icon name="play" size={16} />}</button>)}
-    {state.people.filter(p => !p.ready).map(p => <p key={p.id} className="small muted">{firstName(p.name)} hasn’t answered yet — they’ll get a nudge when you do.</p>)}
+  const named = (q: QuizQuestion, n: string) => q.q.replace(/\{name\}/g, n);
+  const start = (m: 'ask' | 'check', a?: QuizAsk, p?: { id: string; name: string }) => { setMode(m); setCur(a || null); setWho(p || null); setI(0); setPicks([]); };
+  if (mode === 'pick') return <Sheet title="How well do you know me?" sub="Answer about someone · they check" onClose={onClose}>
+    {asks.filter(a => a.forMe && a.score === null).map(a => <button key={a.id} className="inset row" style={{ padding: 14, textAlign: 'left', borderColor: 'rgba(182,221,207,.4)' }} onClick={() => start('check', a)}><span className="mint"><Icon name="heart" size={20} /></span><span className="grow"><span className="h3" style={{ display: 'block' }}>{firstName(a.fromName)} answered 10 questions about you</span><span className="small muted">Pick your real answers to see what they got right</span></span><span className="mint small" style={{ fontWeight: 600 }}>Check</span></button>)}
+    {state.people.map(p => { const waiting = asks.find(a => a.mine && a.about === p.id && a.score === null);
+      return <button key={p.id} className="inset row" style={{ padding: 14, textAlign: 'left', opacity: waiting ? .7 : 1 }} disabled={!!waiting} onClick={() => start('ask', undefined, p)}><span className="grow"><span className="h3" style={{ display: 'block' }}>How well do you know {firstName(p.name)}?</span><span className="small muted">{waiting ? `Waiting for ${firstName(p.name)} to check your answers` : '10 questions about them · about 2 minutes'}</span></span>{!waiting && <Icon name="play" size={16} />}</button>; })}
+    {asks.some(a => a.score !== null) && <p className="h3" style={{ marginTop: 6 }}>Results</p>}
+    {asks.filter(a => a.score !== null).map(a => <button key={a.id} className="inset row" style={{ padding: 14, textAlign: 'left' }} onClick={() => { setCur(a); setMode('view'); }}><span className="grow"><span className="h3" style={{ display: 'block' }}>{a.mine ? `You know ${firstName(a.aboutName)}` : `${firstName(a.fromName)} knows you`}</span><span className="small muted">{ago(a.checkedAt || a.at)} · see the answers</span></span><span className={a.mine ? 'lav' : 'mint'} style={{ fontSize: 20, fontWeight: 600 }}>{a.score}/10</span></button>)}
   </Sheet>;
-  if (mode === 'result' && result && who) { const text = `I got ${result.score}/${Q.length} on “How well do you know ${firstName(who.name)}?” in Our Space`;
-    return <Sheet title={`Know ${firstName(who.name)}?`} onClose={onClose}>
-      <div className="inset col gap-8" style={{ padding: 28, alignItems: 'center', textAlign: 'center' }}><span className="mint"><Icon name="heart" size={36} /></span><p className="display">{result.score}/{Q.length}</p><p className="muted">{result.score >= 8 ? `You know ${firstName(who.name)} really well.` : result.score >= 5 ? 'Not bad — ask about the ones you missed.' : 'Lots to talk about on your next call!'}</p></div>
+  if (mode === 'view' && cur) { const them = firstName(cur.mine ? cur.aboutName : cur.fromName);
+    const text = cur.mine ? `I got ${cur.score}/10 on “How well do you know ${them}?” in Our Space` : `${them} got ${cur.score}/10 on “How well do you know me?” in Our Space`;
+    return <Sheet title={cur.mine ? `You know ${them}` : `${them} knows you`} sub={`${cur.score}/10 right`} onClose={() => setMode('pick')}>
+      <div className="inset col gap-8" style={{ padding: 22, alignItems: 'center', textAlign: 'center' }}><p className="display">{cur.score}/10</p><p className="muted small">{(cur.score ?? 0) >= 8 ? 'Knows them really well.' : (cur.score ?? 0) >= 5 ? 'Not bad — talk about the ones you missed.' : 'Lots to talk about on your next call!'}</p></div>
+      {cur.questions.map((q, k) => { const ok = cur.truth?.[k] === cur.guesses[k]; return <div key={k} className="inset col gap-4" style={{ padding: 12 }}><span className="small" style={{ fontWeight: 600 }}>{named(q, firstName(cur.aboutName))}</span><span className={`small ${ok ? 'mint' : 'rose'}`}>{ok ? '✓' : '✗'} {cur.mine ? 'You' : firstName(cur.fromName)}: {q.opts[cur.guesses[k]]}</span>{!ok && cur.truth && <span className="small muted">Real answer: {q.opts[cur.truth[k]]}</span>}</div>; })}
       <Button variant="secondary" icon="send" onClick={async () => { try { await onShare(text); toast('Shared to Chat', { icon: 'chat' }); } catch (e) { toast(nice(e), { tone: 'error' }); } }}>Share result to Chat</Button>
-      {!state.answered ? <Button onClick={() => begin('answer')}>Now answer 10 about yourself</Button> : <Button onClick={onClose}>Back to games</Button>}
     </Sheet>; }
-  const q = Q[i];
-  return <Sheet title={mode === 'answer' ? 'About you' : `Know ${firstName(who?.name || '')}?`} sub={`Question ${i + 1} of ${Q.length}`} onClose={onClose}
-    footer={picks[i] !== undefined ? <Button block onClick={async () => {
-      if (i + 1 < Q.length) { setI(i + 1); return; }
-      try { if (mode === 'answer') { setState(await api.quizAnswer(picks, state.ids)); toast('Saved — the others can guess now', { icon: 'check' }); setMode('pick'); } else if (who) { setResult(await api.quizGuess(who.id, picks)); setMode('result'); } }
-      catch (e) { toast(nice(e), { tone: 'error' }); }
-    }}>{i + 1 < Q.length ? 'Next question' : mode === 'answer' ? 'Save my answers' : 'See result'}</Button> : undefined}>
+  const checking = mode === 'check' && cur;
+  const Q = checking ? cur.questions : state.questions;
+  const q = Q[i]; const guess = checking ? cur.guesses[i] : undefined;
+  const subject = checking ? 'you' : firstName(who?.name || '');
+  const done = async () => { setBusy(true); try {
+    if (checking) { const r = await api.check(cur.id, picks); toast(`${firstName(cur.fromName)} got ${r.score}/10 — they’ll see it now`, { icon: 'heart' }); await load(); setCur(r); setMode('view'); }
+    else if (who) { await api.ask(who.id, state.ids, picks); toast(`Sent — ${firstName(who.name)} will check which ones you got right`, { icon: 'check' }); await load(); setMode('pick'); }
+  } catch (e) { toast(nice(e), { tone: 'error' }); } finally { setBusy(false); } };
+  return <Sheet title={checking ? `Check ${firstName(cur.fromName)}’s answers` : `Know ${subject}?`} sub={`Question ${i + 1} of ${Q.length}`} onClose={() => setMode('pick')}
+    footer={picks[i] !== undefined ? <Button block busy={busy} onClick={() => { if (i + 1 < Q.length) setI(i + 1); else void done(); }}>{i + 1 < Q.length ? 'Next question' : checking ? 'Done — show the score' : `Send to ${subject}`}</Button> : undefined}>
     <div className="bar"><i style={{ width: `${(i + (picks[i] !== undefined ? 1 : 0)) / Q.length * 100}%`, background: 'var(--mint)' }} /></div>
-    <p className="title" style={{ fontSize: 22 }}>{label(q)}</p>
-    <div className="col gap-8">{q.opts.map((o, k) => <button key={k} className="inset row between" aria-pressed={picks[i] === k} style={{ padding: '14px 16px', borderColor: picks[i] === k ? 'var(--lav)' : undefined }} onClick={() => { const n = [...picks]; n[i] = k; setPicks(n); }}><span>{o}</span>{picks[i] === k && <span className="lav"><Icon name="check" /></span>}</button>)}</div>
+    <p className="small muted">{checking ? `Pick YOUR real answer. ${firstName(cur.fromName)}’s guess is marked.` : `Pick what you think is true for ${subject}. They’ll check your answers.`}</p>
+    <p className="title" style={{ fontSize: 22 }}>{checking ? (q.you || named(q, 'you')) : named(q, subject)}</p>
+    <div className="col gap-8">{q.opts.map((o, k) => { const theirs = guess === k; const verdict = checking && picks[i] !== undefined && theirs ? (picks[i] === guess ? ' · right!' : ' · wrong') : '';
+      return <button key={k} className="inset row between" aria-pressed={picks[i] === k} style={{ padding: '14px 16px', borderColor: picks[i] === k ? 'var(--lav)' : theirs ? 'var(--gold)' : undefined, borderStyle: theirs && picks[i] !== k ? 'dashed' : undefined }} onClick={() => { const n = [...picks]; n[i] = k; setPicks(n); }}>
+        <span className="col" style={{ alignItems: 'flex-start' }}><span>{o}</span>{theirs && <span className="tiny" style={{ fontWeight: 600, color: verdict === ' · right!' ? 'var(--mint)' : verdict ? 'var(--rose)' : 'var(--gold)' }}>{firstName(cur?.fromName || '')}’s guess{verdict}</span>}</span>{picks[i] === k && <span className="lav"><Icon name="check" /></span>}</button>; })}</div>
     {i > 0 && <Button variant="ghost" onClick={() => setI(i - 1)}>Previous</Button>}
   </Sheet>;
 }

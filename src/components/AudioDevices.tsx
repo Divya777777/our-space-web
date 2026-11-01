@@ -33,7 +33,7 @@ export function useAudioDevices(active: boolean) {
   return list;
 }
 
-export function AudioDeviceSheet({ devices, choice, onChange, onClose }: { devices: ReturnType<typeof useAudioDevices>; choice: AudioChoice; onChange: (c: AudioChoice) => void; onClose: () => void }) {
+export function AudioDeviceSheet({ devices, choice, onChange, onClose, inUse }: { devices: ReturnType<typeof useAudioDevices>; choice: AudioChoice; onChange: (c: AudioChoice) => void; onClose: () => void; inUse?: string }) {
   const name = (d: MediaDeviceInfo, i: number, kind: string) => d.label || `${kind} ${i + 1}`;
   return <Sheet title="Audio" sub="Microphone and speaker for calls" onClose={onClose}>
     <div className="col gap-16">
@@ -41,13 +41,13 @@ export function AudioDeviceSheet({ devices, choice, onChange, onClose }: { devic
         <select id="call-mic" className="input" value={choice.mic} onChange={e => onChange({ ...choice, mic: e.target.value })}>
           <option value="">Automatic (computer’s default)</option>
           {devices.mics.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{name(d, i, 'Microphone')}</option>)}
-        </select></div>
+        </select>{inUse ? <p className="tiny muted" style={{ marginTop: 6 }}>Using now: {inUse}</p> : null}</div>
       <div className="field"><label htmlFor="call-speaker">Speaker</label>
         {canPickSpeaker ? <select id="call-speaker" className="input" value={choice.speaker} onChange={e => onChange({ ...choice, speaker: e.target.value })}>
           <option value="">Automatic (computer’s default)</option>
           {devices.speakers.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{name(d, i, 'Speaker')}</option>)}
         </select> : <p className="small muted">This browser always uses the computer’s default speaker. Change it in your computer’s sound settings.</p>}</div>
-      <p className="small muted">With Automatic, a Bluetooth headset or headphones you connect are used straight away.</p>
+      <p className="small muted">With Automatic, earbuds or a headset you connect are used straight away, and removing them goes back to the computer’s own mic and speaker — the call keeps going.</p>
     </div>
   </Sheet>;
 }

@@ -24,7 +24,19 @@ export const useCall = () => useContext(CallContext);
 function micConstraints(id: string, exact: boolean): MediaTrackConstraints {
   return { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(id ? { deviceId: exact ? { exact: id } : { ideal: id } } : {}) };
 }
-const VIDEO: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 }, facingMode: 'user' };
+const VIDEO: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 }, facingMode: 'user' };
+/** Send the full picture: when the connection gets tight, lower the frame rate rather than the resolution. */
+async function keepResolution(sender: RTCRtpSender | null | undefined) {
+  if (!sender?.track || sender.track.kind !== 'video') return;
+  try {
+    sender.track.contentHint = 'motion';
+    const params = sender.getParameters() as RTCRtpSendParameters & { degradationPreference?: string };
+    if (!params.encodings?.length) return;
+    params.encodings.forEach(e => { e.maxBitrate = 2_500_000; e.maxFramerate = 30; e.scaleResolutionDownBy = 1; });
+    params.degradationPreference = 'maintain-resolution';
+    await sender.setParameters(params);
+  } catch { /* the browser keeps its defaults */ }
+}
 
 export function CallProvider({ children }: React.PropsWithChildren) {
   const space = useSpace();
@@ -50,6 +62,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const helloed = useRef(new Set<string>());
   const stream = useRef<MediaStream | null>(null);
   const audioRef = useRef(audioChoice);
+  const [micCheck, setMicCheck] = useState(0);
+  const [micLabel, setMicLabel] = useState('');
   useEffect(() => { audioRef.current = audioChoice; }, [audioChoice]);
   const ice = useRef<RTCIceServer[] | null>(null);
   const mediaState = useRef({ cameraOff: true, muted: false });
@@ -114,6 +128,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       catch { throw new Error(target.video ? 'Allow camera and microphone for this site (the icon in the address bar), then try again.' : 'Allow the microphone for this site (the icon in the address bar), then try again.'); }
       if (callRef.current !== target) { media.getTracks().forEach(t => t.stop()); return false; }
       stream.current = media; setLocal(media);
+      media.getAudioTracks().forEach(t => t.addEventListener('ended', () => setMicCheck(n => n + 1)));
       mediaState.current = { muted: false, cameraOff: !target.video }; setCameraOff(!target.video);
     }
     if (!ice.current) ice.current = await latest.current.iceServers();
@@ -133,6 +148,9 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     }));
     media.getAudioTracks().forEach(old => { media.removeTrack(old); old.stop(); });
     media.addTrack(track);
+    // A headset unplugged mid-call ends its track: notice and move to another microphone.
+    track.addEventListener('ended', () => setMicCheck(n => n + 1));
+    setMicLabel(track.label);
   }
   function createPeer(person: CallPeer, target: ActiveCall, { offerer, ready }: { offerer: boolean; ready: boolean }) {
     removePeer(person.id);
@@ -155,7 +173,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     pc.oniceconnectionstatechange = () => {
       if (peers.current.get(person.id) !== peer || callRef.current !== target) return;
       const s = pc.iceConnectionState;
-      if (s === 'connected' || s === 'completed') { peer.state = 'connected'; pending.current.delete(person.id); shareMedia(); }
+      if (s === 'connected' || s === 'completed') { peer.state = 'connected'; pending.current.delete(person.id); shareMedia(); void keepResolution(peer.sender); }
       else if (s === 'disconnected') peer.state = 'reconnecting';
       else if (s === 'failed') { removePeer(person.id); maybeEnd(`${firstName(person.name)}’s connection dropped.`); return; }
       refresh(); updatePhase();
@@ -328,16 +346,31 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const connected = phase === 'connected' || phase === 'reconnecting';
   const pip = usePip();
   const devices = useAudioDevices(!!call);
-  // Automatic mic: when the computer's default microphone changes (a headset connected), move the call to it.
+  // Keep the call's microphone working when devices come and go (headset plugged in or removed mid-call):
+  // - Automatic: follow the computer's default (a new headset takes over; removing it falls back).
+  // - A picked mic that disappears or stops: use the default until it is back.
   const lastDefault = useRef('');
+  const micIds = devices.mics.map(m => m.deviceId).join(',');
   useEffect(() => {
-    if (!devices.defaultMic) return;
-    const changed = lastDefault.current && lastDefault.current !== devices.defaultMic;
-    lastDefault.current = devices.defaultMic;
-    if (changed && !audioRef.current.mic && stream.current) void switchMic('');
+    const media = stream.current; if (!media) return;
+    const track = media.getAudioTracks()[0];
+    const usingId = track?.getSettings().deviceId || '';
+    const chosen = audioRef.current.mic;
+    const chosenHere = !!chosen && devices.mics.some(m => m.deviceId === chosen);
+    const defaultChanged = !!lastDefault.current && !!devices.defaultMic && lastDefault.current !== devices.defaultMic;
+    if (devices.defaultMic) lastDefault.current = devices.defaultMic;
+    const dead = !track || track.readyState === 'ended' || track.muted && !devices.mics.some(m => m.deviceId === usingId) || (!!usingId && usingId !== 'default' && devices.mics.length > 0 && !devices.mics.some(m => m.deviceId === usingId));
+    if (chosenHere && usingId !== chosen) { void switchMic(chosen); return; }
+    if (dead || (!chosenHere && defaultChanged)) {
+      void switchMic(chosenHere ? chosen : '');
+      if (dead && chosen && !chosenHere) setError('That microphone was disconnected. Using the computer’s default for now.');
+    }
     // switchMic only reads refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [devices.defaultMic]);
+  }, [devices.defaultMic, micIds, micCheck]);
+  useEffect(() => { const t = local?.getAudioTracks()[0]; if (t) setMicLabel(t.label); }, [local]);
+  // A picked speaker that is unplugged: play through the default until it is back.
+  const speakerId = audioChoice.speaker && devices.speakers.some(d => d.deviceId === audioChoice.speaker) ? audioChoice.speaker : '';
   useWantPip('call', !!call);
   const inPip = !!pip.slots && !!call;
   const others = peerList.filter(p => p.state !== 'connecting' || p.stream);
@@ -355,8 +388,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
 
   return <CallContext.Provider value={{ activeCode: call?.code, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true) }}>
     {children}
-    {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} sinkId={audioChoice.speaker} />)}
-    {audioSheet && call && <AudioDeviceSheet devices={devices} choice={audioChoice} onClose={() => setAudioSheet(false)} onChange={next => {
+    {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} sinkId={speakerId} />)}
+    {audioSheet && call && <AudioDeviceSheet devices={devices} inUse={micLabel} choice={audioChoice} onClose={() => setAudioSheet(false)} onChange={next => {
       const micChanged = next.mic !== audioChoice.mic;
       setAudioChoice(next); saveAudioChoice(next);
       if (micChanged) void switchMic(next.mic);
