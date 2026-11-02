@@ -60,7 +60,9 @@ export function PipProvider({ children }: React.PropsWithChildren) {
     auto.current = isAuto;
     const video = wantsRef.current.video;
     let w: Window;
-    try { w = await api.requestWindow(video ? { width: 480, height: 300 } : { width: 300, height: 360 }); } catch { return false; }
+    // One size for everything (video, call, or both), like the YouTube window during a call.
+    void video;
+    try { w = await api.requestWindow({ width: 480, height: 300 }); } catch { return false; }
     win.current = w;
     copyStyles(document, w.document);
     w.document.title = 'Our Space';

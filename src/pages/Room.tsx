@@ -237,6 +237,7 @@ export default function RoomPage() {
       <div className="col gap-8">
         {admin && <Button variant="secondary" icon="edit" onClick={() => { setMenu(false); setRename(room.name); }}>Rename room</Button>}
         {pip.supported && pb && !floating && <Button variant="secondary" icon="pip" onClick={() => { setMenu(false); popOut(); }}>Pop out the video now</Button>}
+        {!pip.supported && call.canFloat && <Button variant="secondary" icon="pip" onClick={() => { setMenu(false); void call.floatCall(); }}>Float the call over other apps</Button>}
         {pip.supported && <Button variant="secondary" icon="pip" onClick={() => { const on = !pip.keepFloating; pip.setKeepFloating(on); toast(on ? 'The video opens in a small window when you press play, so it stays with you in other apps.' : 'The video floats only when you switch tabs.', { icon: 'pip' }); }}>{pip.keepFloating ? 'Keep the video floating in other apps: On' : 'Keep the video floating in other apps: Off'}</Button>}
         {pip.supported && <Button variant="secondary" icon="pip" onClick={() => { pip.setAutoFloat(!pip.autoFloat); toast(pip.autoFloat ? 'The video keeps playing in the background when you switch tabs.' : 'The video floats in a small window when you switch tabs.', { icon: 'pip' }); }}>{pip.autoFloat ? 'Float video when I switch tabs: On' : 'Float video when I switch tabs: Off'}</Button>}
         <Button variant="secondary" icon="copy" onClick={async () => { if (await copyText(room.code)) toast('Room code copied.', { icon: 'copy' }); }}>Copy room code</Button>

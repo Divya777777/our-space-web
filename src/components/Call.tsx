@@ -23,9 +23,10 @@ export type PartyMessage = { w: 'party' } & Record<string, unknown>;
 type PartyListener = (msg: PartyMessage, from: { id: string; name: string }) => void;
 type Controls = { activeCode?: string; liveWith: number; phase: Phase; start: (code: string, members: CallPeer[], video: boolean, title: string) => void; open: () => void;
   /** Send to everyone connected on the call; returns how many received it. */ sendParty: (msg: PartyMessage) => number; onParty: (fn: PartyListener) => () => void;
-  /** Collapse the call into the room (or picture-in-picture), e.g. while watching on another site. */ minimize: () => void };
+  /** Collapse the call into the room (or picture-in-picture), e.g. while watching on another site. */ minimize: () => void;
+  /** Float the call above other apps now (call from a click). Safari / older Firefox: the other person's video. */ floatCall: () => Promise<boolean>; canFloat: boolean };
 const partyListeners = new Set<PartyListener>();
-const CallContext = createContext<Controls>({ liveWith: 0, phase: 'idle', start: () => {}, open: () => {}, sendParty: () => 0, onParty: () => () => {}, minimize: () => {} });
+const CallContext = createContext<Controls>({ liveWith: 0, phase: 'idle', start: () => {}, open: () => {}, sendParty: () => 0, onParty: () => () => {}, minimize: () => {}, floatCall: async () => false, canFloat: false });
 export const useCall = () => useContext(CallContext);
 /** Microphone settings. `exact` when the person just picked it (fail loudly); `ideal` at call start (fall back quietly). */
 function micConstraints(id: string, exact: boolean): MediaTrackConstraints {
@@ -381,6 +382,42 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   useWantPip('call', !!call);
   const inPip = !!pip.slots && !!call;
   const others = peerList.filter(p => p.state !== 'connecting' || p.stream);
+  // Floating call (picture-in-picture, full-screen video): small = one big face (pinned, else whoever speaks),
+  // expanded = everyone including you.
+  const [floatBig, setFloatBig] = useState(false);
+  const [pinned, setPinned] = useState<string | null>(null);
+  const speaker = useActiveSpeaker(others);
+  useEffect(() => { if (pinned && !others.some(p => p.id === pinned)) setPinned(null); }, [pinned, others]);
+  const [fsHost, setFsHost] = useState<Element | null>(null);
+  useEffect(() => {
+    const on = () => {
+      const el = document.fullscreenElement;
+      // YouTube's own full-screen button makes its iframe full screen, and nothing can be drawn over an iframe.
+      // During a call, move full screen to the box around it instead, so the faces can float on top.
+      if (el instanceof HTMLIFrameElement && callRef.current) {
+        const box = el.closest('.screen') || el.parentElement;
+        if (box) { void document.exitFullscreen().then(() => (box as HTMLElement).requestFullscreen()).catch(() => {}); return; }
+      }
+      setFsHost(el);
+    };
+    document.addEventListener('fullscreenchange', on); return () => document.removeEventListener('fullscreenchange', on);
+  }, []);
+  // Browsers without the floating-window API (Safari, older Firefox) can still float a single video: we keep a
+  // tiny copy of the other person's video ready, and float it on a click (Safari doesn't allow it any other way).
+  const floatSrc = useRef<HTMLVideoElement>(null);
+  const floatPeer = others.find(p => p.stream && !p.cameraOff && p.stream.getVideoTracks().length) || null;
+  useEffect(() => { const v = floatSrc.current; if (v && floatPeer?.stream && v.srcObject !== floatPeer.stream) { v.srcObject = floatPeer.stream; void v.play().catch(() => {}); } }, [floatPeer?.stream]);
+  const videoPip = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
+  const canFloat = !!call && (pip.supported || (videoPip && !!floatPeer));
+  const floatCall = async () => {
+    if (!call) return false;
+    if (pip.supported) { setExpanded(false); return pip.open(); }
+    const v = floatSrc.current;
+    if (!v || !floatPeer || !videoPip) return false;
+    try { if (document.pictureInPictureElement !== v) await v.requestPictureInPicture(); return true; } catch { setError('Your browser didn’t open the floating video.'); return false; }
+  };
+  // Leaving the call closes the floating video too.
+  useEffect(() => { if (!call && document.pictureInPictureElement === floatSrc.current) void document.exitPictureInPicture().catch(() => {}); }, [call]);
   const group = (call?.members.length || 0) > 1 || others.length > 1;
   const clock = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
   const status = phase === 'incoming' ? (group ? `${firstName(call?.starter.name || '')} is calling the room` : `Incoming ${call?.video ? 'video' : 'voice'} call`)
@@ -395,7 +432,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
 
   const sendParty = (msg: PartyMessage) => { const text = JSON.stringify(msg); let n = 0; for (const p of peers.current.values()) if (p.channel?.readyState === 'open') { try { p.channel.send(text); n++; } catch { /* closing */ } } return n; };
   const onParty = (fn: PartyListener) => { partyListeners.add(fn); return () => { partyListeners.delete(fn); }; };
-  return <CallContext.Provider value={{ activeCode: call?.code, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false) }}>
+  return <CallContext.Provider value={{ activeCode: call?.code, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false), floatCall, canFloat }}>
+    {call && <video ref={floatSrc} className="float-src" muted playsInline autoPlay aria-hidden="true" />}
     {children}
     {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} sinkId={speakerId} />)}
     {audioSheet && call && <AudioDeviceSheet devices={devices} inUse={micLabel} choice={audioChoice} onClose={() => setAudioSheet(false)} onChange={next => {
@@ -415,6 +453,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     {call && phase !== 'incoming' && expanded && !inPip && <div className="call-layer" role="dialog" aria-label={`Call · ${call.title}`}>
       <div className="call-top">
         <IconButton icon="down" label="Back to the room, the call continues" onClick={() => setExpanded(false)} />
+        {!pip.supported && canFloat && <IconButton icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
         <div className="grow"><p className="h3">{group ? call.title : others[0]?.name || call.title}</p><p className="small muted">{!group && others[0]?.muted && connected ? 'Muted · ' : ''}{status}</p></div>
         {error && <span className="small rose">{error}</span>}
       </div>
@@ -424,24 +463,21 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     </div>}
     {call && phase !== 'incoming' && !expanded && !inPip && <MiniCall others={others} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
       {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
+      {!pip.supported && canFloat && <IconButton size="sm" icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
       <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={() => finish()} />
     </>} />}
-    {inPip && call && createPortal(<div className="pip-callview">
-      {phase === 'incoming' ? <div className="pip-ring">
+    {inPip && call && createPortal(phase === 'incoming' ? <div className="pip-callview"><div className="pip-ring">
         <Avatar name={call.starter.name} size={56} />
         <div style={{ textAlign: 'center' }}><p className="h3 ellipsis">{call.title}</p><p className="tiny muted">{status}</p></div>
         <div className="row gap-16"><IconButton icon="hangup" variant="end" label="Decline" onClick={() => finish(true)} /><IconButton icon={call.video ? 'video' : 'phone'} variant="mint" label="Answer" onClick={() => void accept()} /></div>
-      </div> : <>
-        <div className="pip-tiles">{(others.length ? others : call.members.map(m => ({ id: m.id, name: m.name, stream: null, cameraOff: true, muted: false, state: 'connecting' as const }))).slice(0, 4).map(p => <PipTile key={p.id} p={p} video={call.video} />)}
-          {local && !cameraOff && <div className="pip-self"><VideoEl stream={local} muted /></div>}</div>
-        <div className="pip-bar">
-          <span className="grow tiny ellipsis"><span className="live-dot" /> {status}</span>
-          {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
-          {connected && call.video && <IconButton size="sm" icon={cameraOff ? 'videoOff' : 'video'} variant={cameraOff ? 'on' : undefined} label={cameraOff ? 'Turn camera on' : 'Turn camera off'} disabled={busy} onClick={() => void toggleCamera()} />}
-          <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={() => finish()} />
-        </div>
-      </>}
-    </div>, pip.slots!.call)}
+      </div></div>
+      : <CallFloat others={others.length ? others : call.members.map(m => ({ id: m.id, name: m.name, stream: null, cameraOff: true, muted: false, state: 'connecting' as const }))} video={call.video} local={local} cameraOff={cameraOff} muted={muted} status={status} big={floatBig} onBig={setFloatBig}
+          pinned={pinned} onPin={setPinned} speaker={speaker} connected={connected} busy={busy} onMute={toggleMute} onCamera={() => void toggleCamera()} onEnd={() => finish()} />, pip.slots!.call)}
+    {/* Full-screen video in this tab (the room's YouTube player): the call floats inside it. */}
+    {fsHost && call && connected && !inPip && createPortal(<div className={`fs-call ${floatBig ? 'big' : ''}`}>
+      <CallFloat others={others} video={call.video} local={local} cameraOff={cameraOff} muted={muted} status={status} big={floatBig} onBig={setFloatBig}
+        pinned={pinned} onPin={setPinned} speaker={speaker} connected={connected} busy={busy} onMute={toggleMute} onCamera={() => void toggleCamera()} onEnd={() => finish()} />
+    </div>, fsHost)}
   </CallContext.Provider>;
 }
 
@@ -478,13 +514,60 @@ function VideoEl({ stream, muted, remote }: { stream: MediaStream; muted?: boole
   // Safari: the other person's video floats by itself when you leave the tab.
   return <video ref={ref} autoPlay playsInline muted={muted} data-remote={remote ? '' : undefined} {...(remote ? { autopictureinpicture: '' } : {})} />;
 }
-function PipTile({ p, video }: { p: PeerView; video: boolean }) {
-  const speaking = useSpeaking(p.stream, !p.muted);
-  const showVideo = video && p.stream && !p.cameraOff && p.stream.getVideoTracks().length > 0;
-  return <div className={`pip-tile ${speaking ? 'speaking' : ''}`}>
-    {showVideo ? <VideoEl stream={p.stream!} muted /> : <Avatar name={p.name} size={44} />}
-    <span className="name">{p.muted && <Icon name="micOff" size={11} />}{firstName(p.name)}</span>
+/** The floating call: one big face (pinned, or whoever is speaking) or everyone. Used in picture-in-picture and over full-screen video. */
+export function CallFloat({ others, video, local, cameraOff, muted, status, big, onBig, pinned, onPin, speaker, connected, busy, onMute, onCamera, onEnd }: {
+  others: PeerView[]; video: boolean; local: MediaStream | null; cameraOff: boolean; muted: boolean; status: string; big: boolean; onBig: (v: boolean) => void;
+  pinned: string | null; onPin: (id: string | null) => void; speaker: string | null; connected: boolean; busy: boolean; onMute: () => void; onCamera: () => void; onEnd: () => void;
+}) {
+  const spot = others.find(p => p.id === pinned) || others.find(p => p.id === speaker) || others[0];
+  const selfTile = local && !cameraOff ? <div className="float-tile self"><VideoEl stream={local} muted /><span className="name">You{muted && <Icon name="micOff" size={11} />}</span></div> : null;
+  return <div className={`call-float ${big ? 'big' : 'small'}`}>
+    <div className="float-stage" style={big ? { gridTemplateColumns: `repeat(${Math.min(3, others.length + (selfTile ? 1 : 0)) || 1}, minmax(0, 1fr))` } : undefined}>
+      {big
+        ? <>{others.map(p => <FloatTile key={p.id} p={p} video={video} pinned={pinned === p.id} speaking={speaker === p.id} onPin={others.length > 1 ? () => onPin(pinned === p.id ? null : p.id) : undefined} />)}{selfTile}</>
+        : spot ? <FloatTile p={spot} video={video} pinned={pinned === spot.id} speaking={speaker === spot.id} /> : null}
+    </div>
+    <div className="float-bar">
+      <span className="grow tiny ellipsis"><span className="live-dot" /> {status}</span>
+      {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={onMute} />}
+      {connected && video && <IconButton size="sm" icon={cameraOff ? 'videoOff' : 'video'} variant={cameraOff ? 'on' : undefined} label={cameraOff ? 'Turn camera on' : 'Turn camera off'} disabled={busy} onClick={onCamera} />}
+      <IconButton size="sm" icon={big ? 'down' : 'users'} label={big ? 'Show only the person speaking' : 'Show everyone, you too'} onClick={() => onBig(!big)} />
+      <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={onEnd} />
+    </div>
   </div>;
+}
+function FloatTile({ p, video, pinned, speaking, onPin }: { p: PeerView; video: boolean; pinned: boolean; speaking: boolean; onPin?: () => void }) {
+  const showVideo = video && p.stream && !p.cameraOff && p.stream.getVideoTracks().length > 0;
+  return <div className={`float-tile ${speaking ? 'speaking' : ''}`}>
+    {/* A soft, blurred copy fills the sides when a phone's tall picture sits in a wide window (nothing is cropped). */}
+    {showVideo && <div className="float-fill" aria-hidden="true"><VideoEl stream={p.stream!} muted /></div>}
+    {showVideo ? <VideoEl stream={p.stream!} muted /> : <Avatar name={p.name} size={52} />}
+    <span className="name">{p.muted && <Icon name="micOff" size={11} />}{firstName(p.name)}{pinned && ' · pinned'}</span>
+    {onPin && <button className={`float-pin ${pinned ? 'on' : ''}`} onClick={onPin} aria-label={pinned ? `Unpin ${firstName(p.name)}` : `Pin ${firstName(p.name)} as the big face`}><Icon name="star" size={13} fill={pinned} /></button>}
+  </div>;
+}
+/** Who is talking right now (loudest voice), held briefly so the big face doesn't flicker. Timers, not animation
+ * frames, so it keeps working while the tab is in the background (picture-in-picture). */
+function useActiveSpeaker(peers: PeerView[]) {
+  const [id, setId] = useState<string | null>(null);
+  const key = peers.map(p => `${p.id}:${p.stream?.id || ''}`).join(',');
+  useEffect(() => {
+    const list = peers.filter(p => p.stream && p.stream.getAudioTracks().length);
+    if (list.length < 2) { setId(list[0]?.id ?? null); return; }
+    let ctx: AudioContext; try { ctx = new AudioContext(); } catch { return; }
+    const meters = list.map(p => { const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(p.stream!).connect(an); return { id: p.id, an, buf: new Uint8Array(512) }; });
+    let current: string | null = null; let since = 0;
+    const t = setInterval(() => {
+      let best: string | null = null; let bestLevel = 0.04;
+      for (const m of meters) { m.an.getByteTimeDomainData(m.buf); let sum = 0; for (const v of m.buf) { const d = (v - 128) / 128; sum += d * d; } const level = Math.sqrt(sum / m.buf.length); if (level > bestLevel) { bestLevel = level; best = m.id; } }
+      const now = Date.now();
+      if (best && best !== current && now - since > 1500) { current = best; since = now; setId(best); }
+    }, 250);
+    return () => { clearInterval(t); void ctx.close(); };
+    // Re-wire only when the people or their streams change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return id;
 }
 /** Remote voices play through hidden audio elements so they keep going when the call window is minimised. */
 function RemoteAudio({ stream, sinkId }: { stream: MediaStream | null; sinkId: string }) {

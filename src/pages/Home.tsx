@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NotifyPrompt } from '../components/NotifyPrompt';
 import type { Room } from '../lib/model';
 import { lastVisitOf, useRoomsByVisit } from '../lib/recentRooms';
 import { Link, useNavigate } from 'react-router-dom';
@@ -25,6 +26,7 @@ export default function Home() {
   const waiting = space.rooms.filter(r => r.hostId === space.user.id && r.requests.length > 0);
   const others = live ? live.members.filter(m => m.id !== space.user.id) : [];
   return <div className="page">
+    {!fresh && <div style={{ marginBottom: 18 }}><NotifyPrompt /></div>}
     {!fresh && <div className="row between wrap gap-16">
       <div className="col gap-4"><p className="muted">{greeting()}, {firstName(space.user.name)}</p><h1 className="display" style={{ fontSize: 40 }}>Where to <b>tonight?</b></h1></div>
       {!fresh && <div className="row gap-8"><Button variant="secondary" icon="enter" onClick={() => setSheet('join')}>Join with code</Button><Button icon="plus" onClick={() => setSheet('create')}>Create a room</Button></div>}

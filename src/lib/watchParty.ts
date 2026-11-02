@@ -108,6 +108,7 @@ export function useWatchParty(call: Call, meName: string) {
     send(msg('state', { playing: !s.local.paused, t: s.local.t, id: s.local.id, force: true }));
     overlay('Synced again', 'ok', 2500);
   }, [send]);
+  const resyncRef = useRef(resync); resyncRef.current = resync;
   const togglePlay = useCallback(() => {
     const s = st.current; if (!s.local) return;
     const playing = s.local.paused;
@@ -141,6 +142,8 @@ export function useWatchParty(call: Call, meName: string) {
       lastAction.current = Date.now();
       if (s.local) setLocal({ ...s.local, paused: !playing, t: Number(m.t) || s.local.t });
       send(msg('state', { playing, t: Number(m.t) || 0, id: s.sessionId, action: m.action }));
+    } else if (m.type === 'action' && m.action === 'resync') {
+      resyncRef.current();
     } else if (m.type === 'player-gone' && s.service) {
       setLocal(null); setStatus('waiting'); setNote(`You closed ${SERVICES[s.service].name}. Open it again to keep watching together.`);
       send(msg('left'));
@@ -234,6 +237,11 @@ export function useWatchParty(call: Call, meName: string) {
     wasLive.current = false;
   }, [call.liveWith, service]);
 
+  // The Our Space badge on the Netflix / Prime page mirrors the party's status.
+  const names = Object.values(peers).map(p => p.name.split(' ')[0]).join(' & ');
+  const badgeText = !service ? '' : status === 'synced' ? `In sync with ${names || 'everyone'}` : status === 'syncing' ? 'Starting together…' : status === 'choosing' ? 'Pick something — everyone follows' : names ? `Waiting for ${names}…` : 'Waiting for the others…';
+  useEffect(() => { extension.send({ type: 'badge', text: badgeText, tone: status === 'synced' ? 'ok' : 'wait' }); }, [badgeText, status]);
+  useEffect(() => () => extension.send({ type: 'badge', text: '' }), []);
   const list = Object.entries(peers).map(([id, p]) => ({ id, name: p.name, ready: p.ready, sameTitle: !!sessionId && p.id === sessionId }));
   const party: Party = { service, status, host, title: local?.title || '', local, peers: list, invite, note };
   return { party, start, end, resync, togglePlay, dismissInvite: () => setInvite(null) };

@@ -5,6 +5,7 @@ import { unblockUser, useBlocked } from '../lib/safety';
 import { Avatar, Button, Notice, Sheet, useConfirm, useToast } from '../components/ui';
 import { Icon, IconName } from '../components/Icon';
 import { LinkSheet } from '../components/LinkSheet';
+import { enableNotifications } from '../lib/webNotify';
 
 export default function You() {
   const space = useSpace();
@@ -41,8 +42,8 @@ export default function You() {
 
     <div className="section-head"><h2 className="h2">This browser</h2></div>
     <div className="glass panel list" style={{ padding: 8 }}>
-      {row('bell', 'Call alerts', perm === 'granted' ? 'On — you’ll see a notification when someone calls while this tab is in the background. To turn it off, click the icon left of the address bar → Notifications.' : perm === 'denied' ? 'Off. To turn it on, click the icon left of the address bar → Notifications → Allow, then reload.' : 'Get a notification when someone calls while this tab is in the background.',
-        perm === 'default' ? <Button size="sm" variant="secondary" onClick={async () => setPerm(await Notification.requestPermission())}>Turn on</Button> : undefined)}
+      {row('bell', 'Notifications on this computer', perm === 'granted' ? 'On — calls, messages and join requests show up on this computer, even when Our Space isn’t open. To turn them off, click the icon left of the address bar → Notifications.' : perm === 'denied' ? 'Off. To turn them on, click the icon left of the address bar → Notifications → Allow, then reload.' : 'Get calls, messages and join requests on this computer, even when Our Space isn’t open.',
+        perm === 'default' ? <Button size="sm" variant="secondary" onClick={async () => { const r = await enableNotifications(space.api, true); setPerm(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission); if (r === 'error') toast('Couldn’t connect notifications. Try again in a moment.', { tone: 'error' }); }}>Turn on</Button> : undefined)}
       {row('phone', 'Bring chats from your phone', 'Scan a QR code with Our Space on your phone to copy your older private messages here.', <Button size="sm" variant="secondary" onClick={() => setLinking(true)}>Show QR code</Button>)}
       {row('lock', 'Private chat on this browser', 'Messages are end-to-end encrypted. New messages arrive here and on your phone automatically.')}
     </div>

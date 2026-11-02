@@ -100,6 +100,8 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
     // Publish this browser's own chat key (never replaces the phone's key).
     const me = loadIdentity(account.user.id);
     void request('/keys', { publicKey: me.publicKey, deviceId: me.deviceId, label: browserLabel() }, 'PUT').catch(() => {});
+    // Notifications on this computer: if they're allowed already, (re)connect this browser quietly.
+    void import('./webNotify').then(({ enableNotifications }) => enableNotifications((path, body, method) => request(path, body, method), false)).catch(() => {});
     return () => { alive = false; clearTimeout(slow); };
     // Requests read the current account; rerun only when it changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -131,6 +133,7 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
       if (active) {
         const me = loadIdentity(active.user.id);
         await request(`/keys/${me.deviceId}`, undefined, 'DELETE').catch(() => {});
+        await import('./webNotify').then(({ disableNotifications }) => disableNotifications((path, body, method) => request(path, body, method))).catch(() => {});
         await request('/logout', {}, 'POST', undefined, false, '/api/auth').catch(() => {});
         forgetIdentity(active.user.id);
         try { localStorage.removeItem(`ourspace.cache.v1.${active.user.id}`); } catch { /* ignore */ }
