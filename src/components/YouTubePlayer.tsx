@@ -5,7 +5,7 @@ import { Playback, positionNow } from '../lib/model';
 
 type YTPlayer = {
   mute?(): void;
-  getCurrentTime(): number; getPlayerState(): number; getVideoData(): { video_id: string; title: string };
+  getCurrentTime(): number; getDuration?(): number; getPlayerState(): number; getVideoData(): { video_id: string; title: string };
   loadVideoById(o: { videoId: string; startSeconds?: number }): void; cueVideoById(o: { videoId: string; startSeconds?: number }): void;
   seekTo(s: number, allow: boolean): void; playVideo(): void; pauseVideo(): void; setVolume(v: number): void; destroy(): void;
 };
@@ -36,6 +36,8 @@ export type PlayerEvents = {
   onError?: (message: string) => void;
   /** The floating copy is showing moving video (used to fade out its still picture). */
   onStarted?: () => void;
+  /** A YouTube ad started (true) or finished/was skipped (false) on this computer. `position` is where the video resumes. */
+  onAd?: (on: boolean, position: number) => void;
 };
 /**
  * `follow`: a silent copy that mirrors another player (the floating window). It starts muted, which browsers always
@@ -51,6 +53,7 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow }
   const [ready, setReady] = useState(false);
   const ev = useRef(events); useEffect(() => { ev.current = events; });
   const st = useRef({ off: 0, expected: null as number | null, quietUntil: 0, lastTick: null as null | { t: number; at: number; st: number }, cued: '', lastTitle: '' });
+  const ad = useRef({ on: false, frozen: 0, moving: 0, at: 0 });
   const intent = useRef<{ playing: boolean; position: number; at: number } | null>(null);
   const initial = useRef(playback);
 
@@ -68,14 +71,16 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow }
       const start = initial.current;
       player.current = new YT.Player(el, {
         videoId: start.videoId, width: '100%', height: '100%',
-        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, origin: window.location.origin, start: Math.floor(mirror.current?.() ?? positionNow(start)), ...(isMirror ? { mute: 1, controls: 0, disablekb: 1, autoplay: start.playing ? 1 : 0 } : {}) },
+        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, origin: window.location.origin, start: Math.floor(isMirror && start.playing ? (mirror.current?.() ?? positionNow(start)) + 2 : (mirror.current?.() ?? positionNow(start))), ...(isMirror ? { mute: 1, controls: 0, disablekb: 1, autoplay: start.playing ? 1 : 0 } : {}) },
         events: {
-          onReady: () => { if (!alive) return; if (isMirror) player.current?.mute?.(); setReady(true); reportTitle(); },
+          // The floating copy starts ~2 s ahead (covers its own loading time) and is left alone for a few seconds
+          // instead of being corrected right away; each correction would make it buffer again (the long poster).
+          onReady: () => { if (!alive) return; if (isMirror) { player.current?.mute?.(); st.current.quietUntil = Date.now() + 5000; if (start.playing) player.current?.playVideo(); } setReady(true); reportTitle(); },
           onStateChange: (e: { data: number }) => {
             const p = player.current!; reportTitle();
             if (isMirror) { if (e.data === 1) ev.current.onStarted?.(); return; } // the copy never speaks for the room
             if (e.data === 0) { ev.current.onEnded?.(p.getVideoData().video_id); return; }
-            if (Date.now() < st.current.quietUntil) return;
+            if (Date.now() < st.current.quietUntil || ad.current.on) return;
             if (e.data === 2 && st.current.expected !== 2) { st.current.expected = 2; user('pause', p.getCurrentTime()); }
             else if (e.data === 1 && st.current.expected === 2) { st.current.expected = 1; user('play', p.getCurrentTime()); }
           },
@@ -86,6 +91,16 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow }
       timer = setInterval(() => {
         const p = player.current; if (!p?.getCurrentTime || isMirror) return;
         const t = p.getCurrentTime(), n = Date.now(), s = p.getPlayerState?.() ?? -1, last = st.current.lastTick;
+        // Ads: the API reports "playing" but the video's own time stands still.
+        // Only measured while the tab is visible: a hidden tab reports time less often, which would look the same.
+        const a = ad.current;
+        if (document.visibilityState === 'visible' && last && s === 1 && last.st === 1) {
+          const el = (n - last.at) / 1000, moved = t - last.t;
+          const frozen = el > 0.4 && moved < el * 0.15;
+          if (frozen) { a.moving = 0; a.frozen++; if (!a.on && a.frozen >= 3) { a.on = true; a.at = n; ev.current.onAd?.(true, t); } }
+          else { a.frozen = 0; a.moving++; if (a.on && a.moving >= 2) { a.on = false; st.current.quietUntil = n + 1500; ev.current.onAd?.(false, t); } }
+        } else if (a.on && (s === 0 || n - a.at > 180000)) { a.on = false; a.frozen = 0; ev.current.onAd?.(false, t); }
+        if (a.on) { st.current.lastTick = { t, at: n, st: s }; ev.current.onPosition?.(t); return; }
         if (s === 1 || s === 2) {
           if (last && n > st.current.quietUntil) { const el = last.st === 1 ? (n - last.at) / 1000 : 0; if (t < last.t - 1.5 || t > last.t + el + 2.5) { st.current.quietUntil = n + 1500; user('seek', t); } }
           st.current.lastTick = { t, at: n, st: s };
@@ -103,6 +118,7 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow }
     if (!ready) return;
     const apply = () => {
       const p = player.current; if (!p?.getVideoData) return;
+      if (ad.current.on) return; // let the ad play out; the room is waiting for it
       const state = { videoId, playing, position, updatedAt, revision, updatedBy: '' };
       const mine = intent.current;
       if (mine) {

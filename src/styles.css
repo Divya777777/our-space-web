@@ -642,3 +642,24 @@ textarea.input { height: auto; padding: 12px 16px; resize: vertical; min-height:
 .fs-call.big { width: min(600px, 46vw); height: min(380px, 50vh); }
 .fs-call .call-float { background: rgba(10,12,24,.78); backdrop-filter: blur(16px); }
 .notify-prompt { padding: 12px 14px; border-radius: 20px; animation: slide-in .6s cubic-bezier(.2,1.3,.4,1); }
+/* Chat: save a photo (files already download on click). */
+.msg-photo { position: relative; display: inline-block; }
+.msg-save { position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(5,7,15,.62); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.18); opacity: 0; transform: translateY(4px); transition: opacity .2s, transform .2s; }
+.msg-photo:hover .msg-save, .msg-save:focus-visible { opacity: 1; transform: none; }
+@media (hover: none) { .msg-save { opacity: 1; transform: none; } }
+
+/* Call controls docked in the room header (no floating pop-up over the chat). */
+.call-dock { display: flex; align-items: center; gap: 6px; padding: 3px 3px 3px 4px; border-radius: 999px; background: rgba(182,221,207,.08); border: 1px solid rgba(182,221,207,.25); }
+.call-dock-time { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; height: 32px; color: var(--mint, #B6DDCF); font-weight: 600; font-size: 13px; font-variant-numeric: tabular-nums; border-radius: 999px; }
+.call-dock-time:hover { background: rgba(182,221,207,.12); }
+@media (max-width: 640px) { .call-dock > .btn { display: none; } }
+/* Away from the room: the call pill can be dragged anywhere. */
+.call-pill { touch-action: none; user-select: none; cursor: grab; }
+.call-pill:active { cursor: grabbing; }
+.call-pill .pill-grip { position: absolute; top: 4px; left: 50%; width: 28px; height: 4px; margin-left: -14px; border-radius: 2px; background: rgba(255,255,255,.22); }
+.call-pill { position: fixed; }
+/* Someone else is watching a YouTube ad: the room waits for them. */
+.ad-wait { background: rgba(12,16,28,.72); backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2); }
+.ad-wait-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--gold, #E6C994); box-shadow: 0 0 0 0 rgba(230,201,148,.6); animation: adPulse 1.6s ease-out infinite; }
+@keyframes adPulse { to { box-shadow: 0 0 0 18px rgba(230,201,148,0); } }
+@media (prefers-reduced-motion: reduce) { .ad-wait-dot { animation: none; } }

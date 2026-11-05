@@ -24,9 +24,11 @@ type PartyListener = (msg: PartyMessage, from: { id: string; name: string }) => 
 type Controls = { activeCode?: string; liveWith: number; phase: Phase; start: (code: string, members: CallPeer[], video: boolean, title: string) => void; open: () => void;
   /** Send to everyone connected on the call; returns how many received it. */ sendParty: (msg: PartyMessage) => number; onParty: (fn: PartyListener) => () => void;
   /** Collapse the call into the room (or picture-in-picture), e.g. while watching on another site. */ minimize: () => void;
-  /** Float the call above other apps now (call from a click). Safari / older Firefox: the other person's video. */ floatCall: () => Promise<boolean>; canFloat: boolean };
+  /** Float the call above other apps now (call from a click). Safari / older Firefox: the other person's video. */ floatCall: () => Promise<boolean>; canFloat: boolean;
+  /** For the room header: the call's own controls live there, so no pop-up covers the page. */ muted: boolean; toggleMute: () => void; hangup: () => void; status: string;
+  /** The room page showing the call's controls in its header (then the floating pill hides). */ setDocked: (code: string | null) => void };
 const partyListeners = new Set<PartyListener>();
-const CallContext = createContext<Controls>({ liveWith: 0, phase: 'idle', start: () => {}, open: () => {}, sendParty: () => 0, onParty: () => () => {}, minimize: () => {}, floatCall: async () => false, canFloat: false });
+const CallContext = createContext<Controls>({ liveWith: 0, phase: 'idle', start: () => {}, open: () => {}, sendParty: () => 0, onParty: () => () => {}, minimize: () => {}, floatCall: async () => false, canFloat: false, muted: false, toggleMute: () => {}, hangup: () => {}, status: '', setDocked: () => {} });
 export const useCall = () => useContext(CallContext);
 /** Microphone settings. `exact` when the person just picked it (fail loudly); `ideal` at call start (fall back quietly). */
 function micConstraints(id: string, exact: boolean): MediaTrackConstraints {
@@ -40,8 +42,10 @@ async function keepResolution(sender: RTCRtpSender | null | undefined) {
     sender.track.contentHint = 'motion';
     const params = sender.getParameters() as RTCRtpSendParameters & { degradationPreference?: string };
     if (!params.encodings?.length) return;
-    params.encodings.forEach(e => { e.maxBitrate = 2_500_000; e.maxFramerate = 30; e.scaleResolutionDownBy = 1; });
-    params.degradationPreference = 'maintain-resolution';
+    // 'maintain-resolution' made the picture freeze then jump whenever the link wobbled (it drops whole frames
+    // to keep every pixel). 'balanced' trades a little sharpness for steady motion, and 1.5 Mbps leaves headroom.
+    params.encodings.forEach(e => { e.maxBitrate = 1_500_000; e.maxFramerate = 30; e.scaleResolutionDownBy = 1; e.priority = 'high'; e.networkPriority = 'high'; });
+    params.degradationPreference = 'balanced';
     await sender.setParameters(params);
   } catch { /* the browser keeps its defaults */ }
 }
@@ -173,6 +177,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     pc.ondatachannel = e => attach(peer, e.channel);
     pc.ontrack = e => {
       if (peers.current.get(person.id) !== peer) return;
+      // A slightly deeper jitter buffer (~150 ms) smooths out the freeze-and-jump on wobbly Wi-Fi.
+      try { (e.receiver as RTCRtpReceiver & { jitterBufferTarget?: number }).jitterBufferTarget = 150; } catch { /* older browsers */ }
       if (!peer.stream) peer.stream = e.streams[0] || new MediaStream();
       if (!peer.stream.getTracks().some(t => t.id === e.track.id)) peer.stream.addTrack(e.track);
       refresh();
@@ -385,6 +391,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   // Floating call (picture-in-picture, full-screen video): small = one big face (pinned, else whoever speaks),
   // expanded = everyone including you.
   const [floatBig, setFloatBig] = useState(false);
+  const [docked, setDocked] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
   const speaker = useActiveSpeaker(others);
   useEffect(() => { if (pinned && !others.some(p => p.id === pinned)) setPinned(null); }, [pinned, others]);
@@ -432,7 +439,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
 
   const sendParty = (msg: PartyMessage) => { const text = JSON.stringify(msg); let n = 0; for (const p of peers.current.values()) if (p.channel?.readyState === 'open') { try { p.channel.send(text); n++; } catch { /* closing */ } } return n; };
   const onParty = (fn: PartyListener) => { partyListeners.add(fn); return () => { partyListeners.delete(fn); }; };
-  return <CallContext.Provider value={{ activeCode: call?.code, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false), floatCall, canFloat }}>
+  return <CallContext.Provider value={{ activeCode: call?.code, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false), floatCall, canFloat, muted, toggleMute, hangup: () => finish(), status, setDocked }}>
     {call && <video ref={floatSrc} className="float-src" muted playsInline autoPlay aria-hidden="true" />}
     {children}
     {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} sinkId={speakerId} />)}
@@ -461,9 +468,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       {local && !cameraOff && <div className="tile self-tile"><VideoEl stream={local} muted /><span className="name">You{muted && <Icon name="micOff" size={13} />}</span></div>}
       <div className="call-controls"><div className="glass">{controls}</div></div>
     </div>}
-    {call && phase !== 'incoming' && !expanded && !inPip && <MiniCall others={others} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
+    {call && phase !== 'incoming' && !expanded && !inPip && docked !== call.code && <MiniCall others={others} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
       {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
-      {!pip.supported && canFloat && <IconButton size="sm" icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
       <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={() => finish()} />
     </>} />}
     {inPip && call && createPortal(phase === 'incoming' ? <div className="pip-callview"><div className="pip-ring">
@@ -498,10 +504,25 @@ function PeerTile({ p, video }: { p: PeerView; video: boolean }) {
     <span className="name">{p.muted && <Icon name="micOff" size={13} />}{firstName(p.name)}</span>
   </div>;
 }
+/** Away from the call's room: a small pill you can drag anywhere (it remembers where you put it). */
 function MiniCall({ others, status, title, onOpen, controls }: { others: PeerView[]; status: string; title: string; onOpen: () => void; controls: React.ReactNode }) {
   const first = others.find(p => p.stream && !p.cameraOff && p.stream.getVideoTracks().length);
-  return <div className="call-pill glass" style={first ? { flexDirection: 'column', alignItems: 'stretch', borderRadius: 24, padding: 8, width: 260 } : undefined}>
-    {first && <button className="tile" style={{ aspectRatio: '16 / 10', borderRadius: 18 }} onClick={onOpen} aria-label="Open the call"><VideoEl stream={first.stream!} muted remote /></button>}
+  const box = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => { try { return JSON.parse(localStorage.getItem('ourspace.callPill') || 'null'); } catch { return null; } });
+  const drag = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  const clamp = (x: number, y: number) => { const el = box.current; const w = el?.offsetWidth || 260, h = el?.offsetHeight || 60; return { x: Math.max(8, Math.min(window.innerWidth - w - 8, x)), y: Math.max(8, Math.min(window.innerHeight - h - 8, y)) }; };
+  useEffect(() => { const fit = () => setPos(p => (p ? clamp(p.x, p.y) : p)); window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); }, []);
+  const onDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button') && !(e.target as HTMLElement).closest('.pill-grip')) return;
+    const r = box.current!.getBoundingClientRect(); drag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onMove = (e: React.PointerEvent) => { const d = drag.current; if (!d) return; d.moved = true; setPos(clamp(e.clientX - d.dx, e.clientY - d.dy)); };
+  const onUp = () => { const d = drag.current; drag.current = null; if (d?.moved && pos) { try { localStorage.setItem('ourspace.callPill', JSON.stringify(pos)); } catch { /* fine */ } } };
+  return <div ref={box} className={`call-pill glass ${pos ? 'moved' : ''}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
+    style={{ ...(first ? { flexDirection: 'column', alignItems: 'stretch', borderRadius: 24, padding: 8, width: 240 } : {}), ...(pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : {}) }}>
+    <span className="pill-grip" aria-hidden="true" title="Drag to move" />
+    {first && <button className="tile" style={{ aspectRatio: '16 / 10', borderRadius: 18 }} onClick={() => { if (!drag.current?.moved) onOpen(); }} aria-label="Open the call"><VideoEl stream={first.stream!} muted remote /></button>}
     <div className="row gap-8" style={first ? { padding: '4px 4px 0 8px' } : undefined}>
       <button className="grow row gap-8" onClick={onOpen} style={{ textAlign: 'left', minWidth: 0 }}><span className="live-dot" /><span className="col gap-4" style={{ minWidth: 0 }}><span className="small ellipsis" style={{ fontWeight: 600 }}>{title}</span><span className="tiny muted">{status}</span></span></button>
       {controls}

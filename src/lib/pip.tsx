@@ -112,9 +112,14 @@ export function PipProvider({ children }: React.PropsWithChildren) {
     const audio = carrier();
     const start = () => { void audio.play().catch(() => {}); };
     start();
-    // Browsers only allow sound after a tap on the page; try again on the next one.
+    // Browsers only allow sound after a tap on the page; try again on the next one. A click inside the YouTube
+    // player never reaches this page as a tap, but it does move focus into the player (the window "blurs") and the
+    // click counts for this page too, so start the tone then as well: no need to click an empty part of the site.
+    const intoPlayer = () => { setTimeout(() => { if (document.activeElement instanceof HTMLIFrameElement) start(); }, 0); };
     document.addEventListener('pointerdown', start, true);
-    return () => { document.removeEventListener('pointerdown', start, true); audio.pause(); };
+    document.addEventListener('keydown', start, true);
+    window.addEventListener('blur', intoPlayer);
+    return () => { document.removeEventListener('pointerdown', start, true); document.removeEventListener('keydown', start, true); window.removeEventListener('blur', intoPlayer); audio.pause(); };
   }, [autoFloat, wants.video, wants.call]);
   // 1) Switching to another tab: Chrome asks us to enter PiP by itself (Media Session "enterpictureinpicture").
   useEffect(() => {
@@ -135,8 +140,16 @@ export function PipProvider({ children }: React.PropsWithChildren) {
       if (!floats || win.current || picking) return;
       setTimeout(() => {
         if (document.hasFocus() || win.current) return;
-        // Clicking into the YouTube player moves focus into its iframe; that isn't leaving.
-        if (document.activeElement instanceof HTMLIFrameElement) return;
+        // Clicking into the YouTube player moves focus into its iframe; that isn't leaving yet. Watch for the moment
+        // the whole tab loses focus (switching app within a few seconds of that click) and float then.
+        if (document.activeElement instanceof HTMLIFrameElement) {
+          const until = Date.now() + 6000;
+          const watch = setInterval(() => {
+            if (win.current || Date.now() > until || !(document.activeElement instanceof HTMLIFrameElement)) { clearInterval(watch); return; }
+            if (!document.hasFocus()) { clearInterval(watch); void open(true); }
+          }, 200);
+          return;
+        }
         // Browsers only allow the window right after you used the page (a click, or the Alt / Cmd key of
         // Alt-Tab / Cmd-Tab in some browsers). Just try: if it isn't allowed, nothing happens.
         void open(true);

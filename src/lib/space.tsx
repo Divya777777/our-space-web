@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { Account, backendUrl, googleSignOut, loadAccount, saveAccount } from './account';
 import { isTransient, jsonRequest } from './request';
 import type { Playback, Playlist, Room, Session, Track } from './model';
+import { localizeRoom } from './model';
 import type { CallSignal, IceServer, PlanInfo, SearchResult } from './types';
 import { FREE_LIMITS } from './types';
 import { forgetIdentity, loadIdentity } from './e2e';
@@ -24,7 +25,7 @@ type Space = {
   getRoom: (code: string, wait?: boolean, signal?: AbortSignal) => Promise<Room>;
   approve: (code: string, userId: string, approved: boolean) => Promise<void>;
   removeMember: (code: string, userId: string) => Promise<void>;
-  play: (code: string, videoId: string, playing: boolean, position: number, context?: Track[]) => Promise<void>;
+  play: (code: string, videoId: string, playing: boolean, position: number, context?: Track[], opts?: { hold?: boolean }) => Promise<void>;
   queue: (code: string, action: QueueAction, payload?: { videoId?: string; title?: string; id?: string; from?: string; to?: number }) => Promise<void>;
   setVolume: (code: string, volume: number) => Promise<void>;
   searchYouTube: (query: string, signal?: AbortSignal) => Promise<SearchResult[]>;
@@ -107,7 +108,8 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account?.user.id]);
 
-  function mergeRoom(incoming: Room) {
+  function mergeRoom(raw: Room) {
+    const incoming = localizeRoom(raw);
     const pending = pendingPlay.current.get(incoming.code);
     const room = pending && Date.now() - pending.at < 6000 && (incoming.updateCursor ?? 0) <= pending.cursor ? { ...incoming, playback: pending.playback } : incoming;
     setRooms(prev => {
@@ -195,7 +197,8 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
       if (room.updateCursor !== undefined) roomCursors.current.set(key, room.updateCursor);
       if (room.playbackOnly) {
         let patched: Room | undefined;
-        setRooms(prev => prev.map(r => r.code === code ? (patched = { ...r, playback: room.playback, updateCursor: room.updateCursor }) : r));
+        const local = localizeRoom(room);
+        setRooms(prev => prev.map(r => r.code === code ? (patched = { ...r, playback: local.playback, updateCursor: room.updateCursor }) : r));
         return patched || room;
       }
       mergeRoom(room);
@@ -218,12 +221,13 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
       }
     },
     async removeMember(code, userId) { mergeRoom(await request<Room>(`/rooms/${code}/members/${userId}`, undefined, 'DELETE')); },
-    async play(code, videoId, playing, position, context) {
+    async play(code, videoId, playing, position, context, opts) {
       const base = roomsRef.current.find(r => r.code === code);
-      const optimistic: Playback = { videoId, playing, position, updatedAt: Date.now(), updatedBy: account?.user.id || '', revision: (base?.playback?.revision || 0) + 1 };
+      const me = account?.user;
+      const optimistic: Playback = { videoId, playing, position, updatedAt: Date.now(), updatedBy: me?.id || '', revision: (base?.playback?.revision || 0) + 1, ...(opts?.hold && me ? { hold: { by: me.id, name: me.name } } : {}) };
       pendingPlay.current.set(code, { playback: optimistic, cursor: base?.updateCursor ?? 0, at: Date.now() });
       setRooms(prev => prev.map(r => r.code === code ? { ...r, playback: optimistic } : r));
-      try { mergeRoom(await request<Room>(`/rooms/${code}/playback`, { videoId, playing, position, ...(context ? { queueContext: context.slice(0, 100) } : {}) })); }
+      try { mergeRoom(await request<Room>(`/rooms/${code}/playback`, { videoId, playing, position, ...(opts?.hold ? { hold: true } : {}), ...(context ? { queueContext: context.slice(0, 100) } : {}) })); }
       finally { if (pendingPlay.current.get(code)?.playback === optimistic) pendingPlay.current.delete(code); }
     },
     async queue(code, action, payload = {}) { mergeRoom(await request<Room>(`/rooms/${code}/queue`, { action, ...payload })); },

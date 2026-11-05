@@ -107,6 +107,11 @@ export default function RoomPage() {
   const watch = useWatchParty(call, space.user.name);
   const [installFor, setInstallFor] = useState<{ service: Service; host: boolean } | null>(null);
   const [liveIn, setLiveIn] = useState<object | null>(null);
+  const adWait = useRef('');
+  const roomRef = useRef(room); roomRef.current = room;
+  // This room's header holds the call's controls, so the floating call pill isn't needed here.
+  const setDocked = call.setDocked;
+  useEffect(() => { setDocked(code); return () => setDocked(null); }, [setDocked, code]);
   // Watching Netflix / Prime together: the floating window shows only the call's faces, never the room's YouTube video.
   const partyOn = !!watch.party.service;
   useWantPip('video', !partyOn && !!gate.playback && (gate.playback.playing || !!pip.slots));
@@ -151,6 +156,13 @@ export default function RoomPage() {
           onPosition: s => { position.current = s; if (!heard.current || Math.abs(s - heard.current.t) > 0.01) heard.current = { t: s, at: Date.now() }; },
           onError: setPlayerError,
           onEnded: id => { const key = `${id}:${pb?.revision}`; if (ended.current === key || !room.queue?.length) return; ended.current = key; void space.queue(code, 'next', { from: id }).catch(() => { ended.current = ''; }); },
+          // A YouTube ad on this computer: the room waits (paused for everyone at this spot) and carries on together
+          // when it ends or is skipped. Only resumes if the room is still waiting for us (nobody changed it meanwhile).
+          onAd: (on, at) => {
+            const cur = roomRef.current?.playback; if (!cur || gate.waiting) return;
+            if (on) { if (!cur.playing) return; adWait.current = cur.videoId; void space.play(code, cur.videoId, false, at, undefined, { hold: true }).catch(() => { adWait.current = ''; }); }
+            else if (adWait.current === cur.videoId) { adWait.current = ''; if (!cur.playing && cur.hold?.by === space.user.id) void space.play(code, cur.videoId, true, at).catch(fail); }
+          },
           onUserControl: (action, at) => { if (!pb) return; if (gate.waiting) { if (action === 'play') gate.join(); return; } void space.play(code, pb.videoId, action === 'seek' ? pb.playing : action === 'play', at).catch(fail); },
         }} /> : null;
   const floating = !!pip.slots && !!playerEl && !partyOn;
@@ -160,7 +172,6 @@ export default function RoomPage() {
   // Remembered per floating window (a new window starts with the picture again). (State declared above the early returns.)
   const pipLive = !!pip.slots && liveIn === pip.slots;
   const pipPlayer = floating && gate.playback ? <YouTubePlayer key={`pip-${code}`} playback={gate.playback} events={{ onStarted: () => setLiveIn(pip.slots) }} follow={mainTime} /> : null;
-  const popOut = () => void pip.open().then(ok => { if (!ok) toast('Your browser didn’t open the floating window. Try Chrome or Edge on a computer.', { tone: 'error' }); });
 
   const top = <div className="room-top">
     <IconButton icon="back" label="Back home" onClick={() => nav('/')} />
@@ -173,7 +184,12 @@ export default function RoomPage() {
       <IconButton icon="phone" label={others.length > 1 ? 'Voice call the room' : `Voice call ${others[0].name}`} onClick={() => call.start(code, others, false, others.length > 1 ? room.name : others[0].name)} />
       <IconButton icon="video" label={others.length > 1 ? 'Video call the room' : `Video call ${others[0].name}`} onClick={() => call.start(code, others, true, others.length > 1 ? room.name : others[0].name)} />
     </>}
-    {call.activeCode === code && <Button size="sm" variant="secondary" onClick={call.open}><span className="live-dot" />Back to call</Button>}
+    {call.activeCode === code && <div className="call-dock" role="group" aria-label="Your call">
+      <button className="call-dock-time" onClick={call.open} title="Back to the call"><span className="live-dot" />{call.status}</button>
+      <IconButton size="sm" icon={call.muted ? 'micOff' : 'mic'} variant={call.muted ? 'on' : undefined} label={call.muted ? 'Unmute' : 'Mute'} onClick={call.toggleMute} />
+      <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={call.hangup} />
+      <Button size="sm" variant="secondary" onClick={call.open}>Back to call</Button>
+    </div>}
     <IconButton icon="dots" label="Room options" onClick={() => setMenu(true)} />
   </div>;
 
@@ -186,6 +202,9 @@ export default function RoomPage() {
             reloaded player can't start with sound by itself); the floating window shows a muted copy. */}
         {gate.playback ? playerEl : <div className="screen-empty"><div className="col gap-16" style={{ alignItems: 'center' }}><Star size={48} glow /><p className="h2">What are we watching?</p><p className="muted small" style={{ maxWidth: 360 }}>Search below or paste a YouTube link. It plays for everyone here at the same moment.</p></div></div>}
         {gate.playback && floating && <div className="screen-empty screen-over"><div className="col gap-16" style={{ alignItems: 'center' }}><Icon name="pip" size={40} /><p className="h3">Playing in a floating window</p><p className="muted small" style={{ maxWidth: 340, textAlign: 'center' }}>Use any other app — it stays on top. Everyone here still watches in sync.</p><Button variant="secondary" onClick={pip.close}>Bring it back here</Button></div></div>}
+        {pb?.hold && pb.hold.by !== space.user.id && <div className="screen-empty screen-over ad-wait"><div className="col gap-12" style={{ alignItems: 'center', textAlign: 'center' }}>
+          <span className="ad-wait-dot" aria-hidden="true" /><p className="h3">{firstName(pb.hold.name)} is watching an ad</p>
+          <p className="muted small" style={{ maxWidth: 320 }}>The video waits here and starts again for both of you when the ad ends.</p></div></div>}
         {gate.waiting && <div className="gate"><div className="col gap-16" style={{ alignItems: 'center', textAlign: 'center' }}>
           <p className="h2">{pb?.updatedBy && pb.updatedBy !== space.user.id ? `${firstName(room.members.find(m => m.id === pb.updatedBy)?.name || 'Someone')} is playing something` : 'This room is playing'}</p>
           <Button icon="play" onClick={gate.join}>Join in</Button></div></div>}
@@ -197,7 +216,6 @@ export default function RoomPage() {
         <div className="now grow"><p className="small ellipsis" style={{ fontWeight: 600 }}>{title || 'Loading title…'}</p><p className="tiny muted ellipsis">{gate.waiting ? 'Paused for you' : pb.playing ? 'Playing for everyone' : 'Paused for everyone'}{room.queue?.length ? ` · ${room.queue.length} up next` : ''}</p></div>
         <Volume value={room.volume ?? 100} onChange={v => void space.setVolume(code, v).catch(fail)} />
         <IconButton icon="bookmark" label="Save this video to a playlist" onClick={() => setSave({ videoId: pb.videoId, title: title || 'YouTube video' })} />
-        {pip.supported && !floating && <IconButton icon="pip" label="Float the video in a small window (P)" onClick={popOut} />}
         <IconButton icon="expand" label="Full screen" onClick={() => void screen.current?.requestFullscreen?.().catch(() => {})} />
       </div>}
       {floating && pb && createPortal(<div className="pip-player">
@@ -236,10 +254,6 @@ export default function RoomPage() {
     {menu && <Sheet title={room.name} sub={admin ? 'You’re the admin of this room.' : undefined} onClose={() => setMenu(false)}>
       <div className="col gap-8">
         {admin && <Button variant="secondary" icon="edit" onClick={() => { setMenu(false); setRename(room.name); }}>Rename room</Button>}
-        {pip.supported && pb && !floating && <Button variant="secondary" icon="pip" onClick={() => { setMenu(false); popOut(); }}>Pop out the video now</Button>}
-        {!pip.supported && call.canFloat && <Button variant="secondary" icon="pip" onClick={() => { setMenu(false); void call.floatCall(); }}>Float the call over other apps</Button>}
-        {pip.supported && <Button variant="secondary" icon="pip" onClick={() => { const on = !pip.keepFloating; pip.setKeepFloating(on); toast(on ? 'The video opens in a small window when you press play, so it stays with you in other apps.' : 'The video floats only when you switch tabs.', { icon: 'pip' }); }}>{pip.keepFloating ? 'Keep the video floating in other apps: On' : 'Keep the video floating in other apps: Off'}</Button>}
-        {pip.supported && <Button variant="secondary" icon="pip" onClick={() => { pip.setAutoFloat(!pip.autoFloat); toast(pip.autoFloat ? 'The video keeps playing in the background when you switch tabs.' : 'The video floats in a small window when you switch tabs.', { icon: 'pip' }); }}>{pip.autoFloat ? 'Float video when I switch tabs: On' : 'Float video when I switch tabs: Off'}</Button>}
         <Button variant="secondary" icon="copy" onClick={async () => { if (await copyText(room.code)) toast('Room code copied.', { icon: 'copy' }); }}>Copy room code</Button>
         <Button variant="quiet-danger" icon={admin ? 'trash' : 'logout'} onClick={async () => {
           setMenu(false);
