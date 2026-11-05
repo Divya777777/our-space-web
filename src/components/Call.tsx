@@ -509,20 +509,34 @@ function MiniCall({ others, status, title, onOpen, controls }: { others: PeerVie
   const first = others.find(p => p.stream && !p.cameraOff && p.stream.getVideoTracks().length);
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(() => { try { return JSON.parse(localStorage.getItem('ourspace.callPill') || 'null'); } catch { return null; } });
-  const drag = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
+  // Drag from anywhere on the pill (its buttons too): it only counts as a drag after moving 6 px, so a plain tap
+  // still mutes / opens / hangs up, and the click that ends a drag is swallowed.
+  const drag = useRef<{ x0: number; y0: number; dx: number; dy: number; moved: boolean; id: number } | null>(null);
+  const justDragged = useRef(false);
+  const last = useRef<{ x: number; y: number } | null>(null);
   const clamp = (x: number, y: number) => { const el = box.current; const w = el?.offsetWidth || 260, h = el?.offsetHeight || 60; return { x: Math.max(8, Math.min(window.innerWidth - w - 8, x)), y: Math.max(8, Math.min(window.innerHeight - h - 8, y)) }; };
   useEffect(() => { const fit = () => setPos(p => (p ? clamp(p.x, p.y) : p)); window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); }, []);
   const onDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest('button') && !(e.target as HTMLElement).closest('.pill-grip')) return;
-    const r = box.current!.getBoundingClientRect(); drag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    if (e.button !== 0) return;
+    const r = box.current!.getBoundingClientRect();
+    drag.current = { x0: e.clientX, y0: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false, id: e.pointerId };
   };
-  const onMove = (e: React.PointerEvent) => { const d = drag.current; if (!d) return; d.moved = true; setPos(clamp(e.clientX - d.dx, e.clientY - d.dy)); };
-  const onUp = () => { const d = drag.current; drag.current = null; if (d?.moved && pos) { try { localStorage.setItem('ourspace.callPill', JSON.stringify(pos)); } catch { /* fine */ } } };
-  return <div ref={box} className={`call-pill glass ${pos ? 'moved' : ''}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
+  const onMove = (e: React.PointerEvent) => {
+    const d = drag.current; if (!d || d.id !== e.pointerId) return;
+    if (!d.moved) { if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 6) return; d.moved = true; try { box.current?.setPointerCapture(e.pointerId); } catch { /* fine */ } }
+    e.preventDefault();
+    const next = clamp(e.clientX - d.dx, e.clientY - d.dy); last.current = next; setPos(next);
+  };
+  const onUp = () => {
+    const d = drag.current; drag.current = null; if (!d?.moved) return;
+    justDragged.current = true; setTimeout(() => { justDragged.current = false; }, 0);
+    if (last.current) { try { localStorage.setItem('ourspace.callPill', JSON.stringify(last.current)); } catch { /* fine */ } }
+  };
+  const onClickCapture = (e: React.MouseEvent) => { if (justDragged.current) { e.stopPropagation(); e.preventDefault(); } };
+  return <div ref={box} className={`call-pill glass ${pos ? 'moved' : ''}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onClickCapture={onClickCapture}
     style={{ ...(first ? { flexDirection: 'column', alignItems: 'stretch', borderRadius: 24, padding: 8, width: 240 } : {}), ...(pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : {}) }}>
     <span className="pill-grip" aria-hidden="true" title="Drag to move" />
-    {first && <button className="tile" style={{ aspectRatio: '16 / 10', borderRadius: 18 }} onClick={() => { if (!drag.current?.moved) onOpen(); }} aria-label="Open the call"><VideoEl stream={first.stream!} muted remote /></button>}
+    {first && <button className="tile" style={{ aspectRatio: '16 / 10', borderRadius: 18 }} onClick={onOpen} aria-label="Open the call"><VideoEl stream={first.stream!} muted remote /></button>}
     <div className="row gap-8" style={first ? { padding: '4px 4px 0 8px' } : undefined}>
       <button className="grow row gap-8" onClick={onOpen} style={{ textAlign: 'left', minWidth: 0 }}><span className="live-dot" /><span className="col gap-4" style={{ minWidth: 0 }}><span className="small ellipsis" style={{ fontWeight: 600 }}>{title}</span><span className="tiny muted">{status}</span></span></button>
       {controls}
