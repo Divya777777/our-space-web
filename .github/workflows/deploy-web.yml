@@ -11,7 +11,8 @@ permissions:
   id-token: write
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Never cancel a running deploy: a cancelled one stays "in progress" on GitHub and blocks every later deploy.
+  cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest

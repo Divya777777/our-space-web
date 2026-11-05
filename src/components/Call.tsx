@@ -468,7 +468,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       {local && !cameraOff && <div className="tile self-tile"><VideoEl stream={local} muted /><span className="name">You{muted && <Icon name="micOff" size={13} />}</span></div>}
       <div className="call-controls"><div className="glass">{controls}</div></div>
     </div>}
-    {call && phase !== 'incoming' && !expanded && !inPip && docked !== call.code && <MiniCall others={others} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
+    {call && phase !== 'incoming' && !expanded && !inPip && (call.video || docked !== call.code) && <MiniCall others={others} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
       {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
       <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={() => finish()} />
     </>} />}
