@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, IconButton, Sheet } from './ui';
 import { Icon } from './Icon';
-import { EXTENSION_URL, Party, SERVICES, Service, browserSupported, clock, closeStore, extension, openStore, useExtension } from '../lib/watchParty';
+import { EXTENSION_URL, Party, SERVICES, Service, TEST_ZIP, browserSupported, isFirefox, clock, closeStore, extension, openStore, useExtension } from '../lib/watchParty';
 
 function Mark({ service, size = 40 }: { service: Service; size?: number }) {
   // Our own tile mark (not the services' logos): the service name's first letters on its colour.
@@ -46,7 +46,7 @@ export function InstallSheet({ service, onDone, onClose }: { service: Service; o
   const R = 54, C = 2 * Math.PI * R;
   const name = SERVICES[service].name;
   if (!browserSupported) return <Sheet title={`${name} together`} sub="Works on a computer" onClose={onClose}>
-    <p className="muted">Watching {name} together works in Chrome, Edge, Brave or Opera on a computer. On a phone, keep watching YouTube together in the app.</p>
+    <p className="muted">Watching {name} together works in Chrome, Edge, Brave, Opera or Firefox on a computer. On a phone, keep watching YouTube together in the app.</p>
     <Button onClick={onClose}>OK</Button>
   </Sheet>;
   return <Sheet title={installed ? 'All set' : `Setting up ${name}`} sub={installed ? `Opening ${name}…` : 'Only the first time'} onClose={() => { closeStore(); onClose(); }}>
@@ -58,17 +58,21 @@ export function InstallSheet({ service, onDone, onClose }: { service: Service; o
         </svg>
         <span className="install-pct">{installed ? <Icon name="check" size={34} stroke={2.6} /> : `${Math.round(pct)}%`}</span>
       </div>
-      <p className="small muted" role="status" style={{ textAlign: 'center', minHeight: 20 }}>{installed ? `Ready. Opening ${name}…` : 'Choose “Add to Chrome” in the window on top — Chrome asks once.'}</p>
+      <p className="small muted" role="status" style={{ textAlign: 'center', minHeight: 20 }}>{installed ? `Ready. Opening ${name}…` : (isFirefox ? 'Choose “Add to Firefox” in the window on top — Firefox asks once.' : 'Choose “Add to Chrome” in the window on top — Chrome asks once.')}</p>
       {!installed && EXTENSION_URL && <button className="btn ghost sm" onClick={() => openStore()}>Show the window again</button>}
       {!installed && !EXTENSION_URL && <div className="col gap-8" style={{ width: '100%' }}>
         {/* Test version only — goes away once the extension is on the Chrome Web Store (VITE_EXTENSION_URL). */}
         <p className="small" style={{ fontWeight: 600 }}>Test version — add it once:</p>
-        <ol className="install-steps small">
-          <li>It’s downloading now (<b>ourspace-extension.zip</b>). Double-click it in Downloads to unzip.</li>
+        {isFirefox ? <ol className="install-steps small">
+          <li>It’s downloading now (<b>{TEST_ZIP}</b>).</li>
+          <li>Open a new tab and go to <b>about:debugging#/runtime/this-firefox</b>.</li>
+          <li>Click <b>Load Temporary Add-on…</b> and pick the downloaded zip. This page carries on by itself. (Test versions last until Firefox restarts.)</li>
+        </ol> : <ol className="install-steps small">
+          <li>It’s downloading now (<b>{TEST_ZIP}</b>). Double-click it in Downloads to unzip.</li>
           <li>Open a new tab, go to <b>chrome://extensions</b> and turn on <b>Developer mode</b> (top right).</li>
           <li>Click <b>Load unpacked</b> and pick the <b>ourspace-extension</b> folder. This page carries on by itself.</li>
-        </ol>
-        <a className="btn ghost sm" href={`${import.meta.env.BASE_URL}ourspace-extension.zip`} download>Download again</a>
+        </ol>}
+        <a className="btn ghost sm" href={`${import.meta.env.BASE_URL}${TEST_ZIP}`} download>Download again</a>
       </div>}
     </div>
   </Sheet>;

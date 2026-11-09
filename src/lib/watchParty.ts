@@ -40,14 +40,21 @@ if (typeof window !== 'undefined') setTimeout(() => extension.ping(), 0);
 export function useExtension() {
   return useSyncExternalStore(fn => { subs.add(fn); return () => { subs.delete(fn); }; }, () => version || document.documentElement.dataset.ourspaceExt || '');
 }
-/** Extensions work in Chrome, Edge, Brave and Opera on a computer. */
-export const browserSupported = typeof navigator !== 'undefined' && /Chrome\/|Chromium\//.test(navigator.userAgent) && !/Mobile|Android/i.test(navigator.userAgent);
-export const EXTENSION_URL = (import.meta.env as Record<string, string | undefined>).VITE_EXTENSION_URL || '';
+const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+/** Firefox on a computer gets its own build of the extension (addons.mozilla.org). */
+export const isFirefox = /Firefox\//.test(ua) && !/Mobile|Android/i.test(ua);
+/** Extensions work in Chrome, Edge, Brave, Opera and Firefox on a computer. */
+export const browserSupported = isFirefox || (/Chrome\/|Chromium\//.test(ua) && !/Mobile|Android/i.test(ua));
+const env = import.meta.env as Record<string, string | undefined>;
+/** The store page for this browser (empty until that listing is live). */
+export const EXTENSION_URL = (isFirefox ? env.VITE_FIREFOX_EXTENSION_URL : env.VITE_EXTENSION_URL) || '';
+/** The test download for this browser (until the store listing is live). */
+export const TEST_ZIP = isFirefox ? 'ourspace-extension-firefox.zip' : 'ourspace-extension.zip';
 /** The store version's ID (once published) and the test version's fixed ID (from the key in extension/manifest.json). */
 const EXTENSION_IDS = [(import.meta.env as Record<string, string | undefined>).VITE_EXTENSION_ID, 'bodhgadmdeebjmklhkgjlmcjlnnibino'].filter(Boolean) as string[];
 /** Test version (before the store): start the download from the click. */
 export function downloadTestVersion() {
-  const a = document.createElement('a'); a.href = `${import.meta.env.BASE_URL}ourspace-extension.zip`; a.download = 'ourspace-extension.zip';
+  const a = document.createElement('a'); a.href = `${import.meta.env.BASE_URL}${TEST_ZIP}`; a.download = TEST_ZIP;
   document.body.appendChild(a); a.click(); a.remove();
 }
 /** The store window we opened for the one-time install (closed again once the extension is detected). */
