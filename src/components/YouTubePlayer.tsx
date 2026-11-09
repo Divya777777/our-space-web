@@ -121,10 +121,11 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow, 
       t = setTimeout(() => {
         const p = player.current; if (!p?.getCurrentTime || ad.current.on) return;
         const s = p.getPlayerState?.() ?? -1;
-        if (s === 2 || s === 5) { st.current.quietUntil = Date.now() + 1500; p.seekTo(p.getCurrentTime(), true); }
+        // Only when paused: on a video that hasn't started yet ("cued"), seeking makes YouTube start playing.
+        if (s === 2) { st.current.quietUntil = Date.now() + 1500; p.seekTo(p.getCurrentTime(), true); }
       }, 350);
     };
-    repaint();
+    if (nudge) repaint(); // not when the room first opens, only after coming back from floating
     const onVis = () => { if (document.visibilityState === 'visible') repaint(); };
     document.addEventListener('fullscreenchange', repaint);
     document.addEventListener('visibilitychange', onVis);
