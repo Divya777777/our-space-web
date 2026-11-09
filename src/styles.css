@@ -665,3 +665,43 @@ textarea.input { height: auto; padding: 12px 16px; resize: vertical; min-height:
 @media (prefers-reduced-motion: reduce) { .ad-wait-dot { animation: none; } }
 
 .file-save { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.12); font-size: 12px; font-weight: 600; }
+
+/* Sign-in page: plain, typographic, one soft light. */
+.w-page { position: relative; z-index: 1; height: 100%; overflow-y: auto; background: #08090D; display: grid; grid-template-rows: auto 1fr auto; padding: 28px clamp(20px, 6vw, 88px); }
+.w-glow { position: fixed; inset: auto -20vw -40vh auto; width: 80vw; height: 80vh; background: radial-gradient(closest-side, rgba(200,182,255,.10), transparent); pointer-events: none; }
+.w-top { position: relative; display: flex; align-items: center; justify-content: space-between; }
+.w-link { font-size: 14px; color: var(--muted); text-decoration: none; }
+.w-link:hover { color: var(--text); }
+.w-body { position: relative; align-self: center; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .95fr); gap: clamp(32px, 6vw, 96px); align-items: center; }
+.w-main { position: relative; max-width: 620px; padding: 64px 0; animation: wIn .7s var(--ease) both; }
+.w-shot { position: relative; margin: 0; border-radius: 20px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); background: #111320; box-shadow: 0 40px 90px -40px rgba(0,0,0,.9); animation: wIn .9s .1s var(--ease) both; }
+.w-frame { position: relative; aspect-ratio: 16 / 10; background: linear-gradient(180deg, #2B2340 0%, #5A3D55 48%, #C98A6B 74%, #3A2B33 75%, #1C1820 100%); overflow: hidden; }
+.w-sun { position: absolute; left: 58%; top: 52%; width: 18%; aspect-ratio: 1; border-radius: 50%; background: #F2C49B; opacity: .85; transform: translate(-50%, -50%); filter: blur(.5px); }
+.w-hill { position: absolute; left: -10%; right: -10%; bottom: -30%; height: 60%; border-radius: 50%; background: #1A161E; }
+.w-faces { position: absolute; right: 16px; top: 16px; display: flex; }
+.w-face { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; font-size: 17px; border: 2px solid #111320; }
+.w-face.a { background: #D9CCFF; color: #2A2140; }
+.w-face.r { background: #BFE3D6; color: #18352C; margin-left: -12px; }
+.w-cap { display: flex; justify-content: space-between; padding: 14px 18px 10px; font-size: 13px; color: var(--muted); }
+.w-bar { margin: 0 18px 16px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.1); }
+.w-bar i { display: block; width: 38%; height: 100%; border-radius: 2px; background: var(--lav); }
+.w-title { margin: 0; font-weight: 300; font-size: clamp(42px, 6.2vw, 80px); line-height: 1.02; letter-spacing: -.035em; color: var(--text); }
+.w-lead { margin: 22px 0 0; max-width: 440px; font-size: 18px; line-height: 1.55; color: var(--muted); }
+.w-signin { margin-top: 40px; display: flex; flex-direction: column; gap: 12px; max-width: 320px; }
+.w-google { min-height: 44px; transition: opacity .2s; }
+.w-note { margin: 0; font-size: 13px; color: var(--quiet); display: flex; align-items: center; gap: 8px; }
+.w-facts { list-style: none; margin: 64px 0 0; padding: 24px 0 0; border-top: 1px solid rgba(255,255,255,.08); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.w-facts li { display: flex; flex-direction: column; gap: 4px; }
+.w-facts b { font-size: 14px; font-weight: 600; color: var(--text); }
+.w-facts span { font-size: 13px; line-height: 1.45; color: var(--quiet); }
+.w-foot { position: relative; display: flex; justify-content: space-between; gap: 16px; font-size: 12px; color: var(--quiet); }
+.w-foot a { color: var(--muted); }
+@keyframes wIn { from { opacity: 0; transform: translateY(10px); } }
+@media (max-width: 900px) { .w-body { grid-template-columns: 1fr; } .w-shot { display: none; } }
+@media (max-width: 640px) {
+  .w-main { padding: 40px 0; }
+  .w-lead { font-size: 16px; }
+  .w-facts { grid-template-columns: 1fr; gap: 16px; margin-top: 44px; }
+  .w-foot { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) { .w-main, .w-shot { animation: none; } }

@@ -28,7 +28,7 @@ function Gate() {
   if (!space.signedIn) {
     // Keep invite links working through sign-in.
     if (location.pathname === '/join') sessionStorage.setItem('ourspace.afterSignIn', location.pathname + location.search);
-    return <><div className="space" /><Starfield /><Welcome /></>;
+    return <Welcome />;
   }
   const after = sessionStorage.getItem('ourspace.afterSignIn');
   if (after) { sessionStorage.removeItem('ourspace.afterSignIn'); return <Navigate to={after} replace />; }

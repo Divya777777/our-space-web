@@ -35,6 +35,7 @@ jobs:
           VITE_ANDROID_URL: ${{ vars.VITE_ANDROID_URL }}
           VITE_IOS_URL: ${{ vars.VITE_IOS_URL }}
           VITE_EXTENSION_URL: ${{ vars.VITE_EXTENSION_URL }}
+          VITE_EXTENSION_ID: ${{ vars.VITE_EXTENSION_ID }}
       # GitHub Pages has no rewrites: serve the app for every path (room links, /join?code=…).
       - run: cp dist/index.html dist/404.html && touch dist/.nojekyll
       - uses: actions/configure-pages@v5
