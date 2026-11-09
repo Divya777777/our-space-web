@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Wordmark } from '../components/Brand';
 import { Notice } from '../components/ui';
-import { ANDROID_URL } from '../components/GetApp';
+import { ANDROID_LIVE, ANDROID_URL } from '../components/GetApp';
 import { backendUrl, renderGoogleButton } from '../lib/account';
 import { useSpace } from '../lib/space';
 
@@ -28,7 +28,8 @@ export default function Welcome() {
     <div className="w-glow" aria-hidden="true" />
     <header className="w-top">
       <Wordmark size={20} />
-      <a className="w-link" href={ANDROID_URL} target="_blank" rel="noreferrer">Get the Android app</a>
+      {ANDROID_LIVE ? <a className="w-link" href={ANDROID_URL} target="_blank" rel="noreferrer">Get the Android app</a>
+        : <span className="w-link w-soon">Android app <em>coming soon</em></span>}
     </header>
 
     <div className="w-body">

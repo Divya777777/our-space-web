@@ -705,3 +705,9 @@ textarea.input { height: auto; padding: 12px 16px; resize: vertical; min-height:
   .w-foot { flex-direction: column; }
 }
 @media (prefers-reduced-motion: reduce) { .w-main, .w-shot { animation: none; } }
+/* Google's sign-in button lives in an iframe. On a dark page the browser paints a white box behind it (the page
+   and the iframe disagree on light/dark); matching the iframe's scheme keeps its background transparent. */
+.w-google, .w-google iframe, iframe[src*="accounts.google.com/gsi"] { color-scheme: light; }
+.w-google { background: transparent; }
+.w-soon { cursor: default; }
+.w-soon em { font-style: normal; margin-left: 6px; padding: 3px 9px; border-radius: 999px; font-size: 12px; color: var(--lav); background: rgba(200,182,255,.1); }
