@@ -45,7 +45,7 @@ export type PlayerEvents = {
  * of a second of `follow()` (the main player's time). The main player keeps playing the sound in the room page, so
  * opening or closing the floating window never pauses or reloads what you hear.
  */
-export default function YouTubePlayer({ playback, volume = 100, events, follow }: { playback: Playback; volume?: number; events: PlayerEvents; follow?: () => number | null }) {
+export default function YouTubePlayer({ playback, volume = 100, events, follow, nudge = 0 }: { playback: Playback; volume?: number; events: PlayerEvents; follow?: () => number | null; nudge?: number }) {
   const mirror = useRef(follow); mirror.current = follow;
   const isMirror = !!follow;
   const host = useRef<HTMLDivElement>(null);
@@ -110,6 +110,27 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow }
     });
     return () => { alive = false; clearInterval(timer); try { player.current?.destroy(); } catch { /* gone */ } player.current = null; };
   }, []);
+
+  // Coming back from a floating window or full screen, some laptops (seen on Linux and in Firefox) leave the paused
+  // picture black until the video moves. Re-seeking to the same spot makes YouTube draw the frame again.
+  useEffect(() => {
+    if (!ready || isMirror) return;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const repaint = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const p = player.current; if (!p?.getCurrentTime || ad.current.on) return;
+        const s = p.getPlayerState?.() ?? -1;
+        if (s === 2 || s === 5) { st.current.quietUntil = Date.now() + 1500; p.seekTo(p.getCurrentTime(), true); }
+      }, 350);
+    };
+    repaint();
+    const onVis = () => { if (document.visibilityState === 'visible') repaint(); };
+    document.addEventListener('fullscreenchange', repaint);
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', repaint);
+    return () => { clearTimeout(t); document.removeEventListener('fullscreenchange', repaint); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', repaint); };
+  }, [ready, isMirror, nudge]);
 
   useEffect(() => { if (ready && !isMirror) player.current?.setVolume(Math.max(0, Math.min(100, volume))); }, [ready, volume, isMirror]);
 

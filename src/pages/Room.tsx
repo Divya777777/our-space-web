@@ -108,6 +108,9 @@ export default function RoomPage() {
   const [installFor, setInstallFor] = useState<{ service: Service; host: boolean } | null>(null);
   const [liveIn, setLiveIn] = useState<object | null>(null);
   const adWait = useRef('');
+  const [nudge, setNudge] = useState(0);
+  // The floating window closed: have the room's player redraw its picture (some laptops leave it black).
+  useEffect(() => { if (!pip.slots) setNudge(n => n + 1); }, [pip.slots]);
   const roomRef = useRef(room); roomRef.current = room;
   // This room's header holds the call's controls, so the floating call pill isn't needed here.
   const setDocked = call.setDocked;
@@ -149,7 +152,7 @@ export default function RoomPage() {
   const next = () => { if (pb && room.queue?.length) void space.queue(code, 'next', { from: pb.videoId }).catch(fail); };
   const shareToChat = async (text: string) => { await chat.sendText(text); };
 
-  const playerEl = gate.playback ? <YouTubePlayer key={code} playback={gate.playback} volume={room.volume ?? 100} events={{
+  const playerEl = gate.playback ? <YouTubePlayer key={code} playback={gate.playback} volume={room.volume ?? 100} nudge={nudge} events={{
           onTitle: (id, t) => { if (id === pb?.videoId) setTitle(t); },
           // Note when the time last moved: in a hidden tab YouTube reports less often, and a repeated old value
           // must not look fresh (the floating copy would keep jumping back and show only black while buffering).
