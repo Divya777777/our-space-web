@@ -190,6 +190,8 @@ export default function RoomPage() {
     {call.activeCode === code && <div className="call-dock" role="group" aria-label="Your call">
       <button className="call-dock-time" onClick={call.open} title="Back to the call"><span className="live-dot" />{call.status}</button>
       <IconButton size="sm" icon={call.muted ? 'micOff' : 'mic'} variant={call.muted ? 'on' : undefined} label={call.muted ? 'Unmute' : 'Mute'} onClick={call.toggleMute} />
+      {/* Safari (and older browsers) can't float by themselves when you switch apps: one tap does it there. */}
+      {!pip.supported && call.canFloat && <IconButton size="sm" icon="pip" label="Float the call over other apps" onClick={() => void call.floatCall()} />}
       <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={call.hangup} />
       <Button size="sm" variant="secondary" onClick={call.open}>Back to call</Button>
     </div>}

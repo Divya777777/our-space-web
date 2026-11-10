@@ -56,9 +56,28 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
     if (list.length > 1 && failed) toast(`${failed} of ${list.length} didn’t send. Try those again.`, { tone: 'error' });
     setProgress('');
   };
+  // Drop files anywhere on the chat (messages, empty space or the message box), or paste a copied image/screenshot.
+  const [dropping, setDropping] = useState(false);
+  const depth = useRef(0);
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types || []).includes('Files');
+  const dragProps = {
+    onDragEnter: (e: React.DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); depth.current++; setDropping(true); },
+    onDragOver: (e: React.DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; },
+    onDragLeave: (e: React.DragEvent) => { if (!hasFiles(e)) return; depth.current = Math.max(0, depth.current - 1); if (!depth.current) setDropping(false); },
+    onDrop: (e: React.DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); depth.current = 0; setDropping(false); const f = Array.from(e.dataTransfer.files); if (f.length && !progress) void attach(f); },
+  };
+  const onPaste = (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData?.files || []);
+    if (!files.length) return; // plain text pastes as usual
+    e.preventDefault();
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    // Screenshots arrive as "image.png"; give them a name worth keeping.
+    void attach(files.map(f => (/^image\.\w+$/.test(f.name) ? new File([f], `Pasted ${stamp}.${f.name.split('.').pop()}`, { type: f.type }) : f)));
+  };
   let lastDay = ''; let lastFrom = '';
-  return <div className="col" style={{ flex: 1, minHeight: 0, gap: 0 }}>
-    <div className="chat" style={{ flex: 1 }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const f = Array.from(e.dataTransfer.files); if (f.length) void attach(f); }}>
+  return <div className={`col chat-drop ${dropping ? 'dropping' : ''}`} style={{ flex: 1, minHeight: 0, gap: 0 }} {...dragProps}>
+    {dropping && <div className="drop-hint" aria-hidden="true"><Icon name="paperclip" size={22} />Drop to send</div>}
+    <div className="chat" style={{ flex: 1 }}>
       <p className="tiny quiet row gap-8" style={{ justifyContent: 'center', padding: '4px 0 10px', textAlign: 'center' }}><Icon name="lock" size={13} />Private. Only people in this room can read it. History stays in this browser.</p>
       <button className="link-cta" onClick={() => setLinking(true)}>
         <span className="center" style={{ width: 36, height: 36, borderRadius: 12, background: 'rgba(200,182,255,.18)', color: 'var(--lav)', flex: 'none' }}><Icon name="phone" size={18} /></span>
@@ -85,18 +104,25 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
       <IconButton icon="paperclip" label="Send photos or files (pick several at once)" onClick={() => fileInput.current?.click()} disabled={!!progress} />
       <textarea aria-label={`Message ${room.name}`} className="input" placeholder={progress || 'Message'} value={text} rows={1}
         onChange={e => { setText(e.target.value); e.target.style.height = '44px'; e.target.style.height = Math.min(140, e.target.scrollHeight) + 'px'; }}
-        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} />
+        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} onPaste={onPaste} />
       <IconButton icon="send" variant="accent" label="Send message" onClick={() => void send()} disabled={!text.trim()} />
     </div>
   </div>;
 }
 
+/** The photo's size on screen: fits in 260 × 260 (tall photos get narrow, wide ones short), so the save button
+ *  always sits on the picture's own corner. */
+function photoSize(w?: number, h?: number): React.CSSProperties | undefined {
+  if (!w || !h) return undefined;
+  const k = Math.min(260 / w, 260 / h, 1);
+  return { width: Math.round(w * k), height: Math.round(h * k) };
+}
 function Message({ item, status, mine, showName, onReport, onDismiss }: { item: ChatItem; status: Status | null; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void }) {
   const [url, setUrl] = useState('');
   useEffect(() => { if (item.file) void fileUrl(item.file.key).then(setUrl); }, [item.file]);
   return <div className={`msg ${mine ? 'me' : ''} ${item.pending ? 'pending' : ''} ${item.failed ? 'failed' : ''}`} onContextMenu={e => { if (!mine) { e.preventDefault(); onReport(); } }}>
     {showName && <span className="who">{firstName(item.name)}</span>}
-    {item.kind === 'image' && item.file ? (url ? <div className="msg-photo"><a href={url} target="_blank" rel="noreferrer"><img src={url} alt={item.file.name} style={item.file.w ? { aspectRatio: `${item.file.w} / ${item.file.h}` } : undefined} /></a>
+    {item.kind === 'image' && item.file ? (url ? <div className="msg-photo"><a href={url} target="_blank" rel="noreferrer"><img src={url} alt={item.file.name} style={photoSize(item.file.w, item.file.h)} /></a>
       <a className="msg-save" href={url} download={item.file.name || 'photo.jpg'} aria-label={`Save ${item.file.name || 'photo'}`} title="Save to this computer"><Icon name="download" size={16} /></a></div> : <div className="skeleton" style={{ width: 220, height: 160 }} />)
       : item.kind === 'file' && item.file ? <a className="bubble row gap-8" href={url || undefined} download={item.file.name} style={{ color: 'inherit' }}><Icon name="file" size={18} /><span className="ellipsis" style={{ maxWidth: 200 }}>{item.file.name}</span><span className="tiny" style={{ opacity: .7 }}>{(item.file.size / 1e6).toFixed(1)} MB</span><span className="file-save"><Icon name="download" size={14} />Save</span></a>
         : <div className="bubble">{item.text}</div>}

@@ -10,15 +10,24 @@ const COLORS = ['#141125', '#E0566B', '#3F7FE0', '#2E9E6E', '#E6A23C'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const nice = (e: unknown) => { const m = (e as Error).message || ''; return /endpoint not found|^not found$/i.test(m) ? 'Games are still being set up on the server. Try again in a few minutes.' : m || 'Something went wrong. Try again.'; };
 function usePoll<T>(load: () => Promise<T>, ms: number, on = true) {
-  const [data, setData] = useState<T | undefined>(undefined);
+  const [data, setRaw] = useState<T | undefined>(undefined);
   const live = useRef(load); useEffect(() => { live.current = load; });
+  // A poll that started before your own move must not overwrite the result of that move (it would flash back).
+  const gen = useRef(0);
+  const poke = useRef<() => void>(() => {});
   useEffect(() => {
     if (!on) return; let alive = true;
-    const run = () => { void live.current().then(v => { if (alive) setData(v); }).catch(() => {}); };
+    const run = () => { const g = gen.current; void live.current().then(v => { if (alive && g === gen.current) setRaw(v); }).catch(() => {}); };
+    poke.current = run;
     run(); const t = setInterval(() => { if (!document.hidden) run(); }, ms);
-    return () => { alive = false; clearInterval(t); };
+    // Coming back to the tab or window: catch up straight away.
+    const back = () => { if (!document.hidden) run(); };
+    document.addEventListener('visibilitychange', back); window.addEventListener('focus', back);
+    return () => { alive = false; clearInterval(t); document.removeEventListener('visibilitychange', back); window.removeEventListener('focus', back); };
   }, [ms, on]);
-  return [data, setData] as const;
+  const setData = useCallback((v: T | undefined) => { gen.current++; setRaw(v); }, []);
+  const refresh = useCallback(() => poke.current(), []);
+  return [data, setData, refresh] as const;
 }
 
 export function PlayPanel({ code, onShare }: { code: string; onShare: (text: string) => Promise<void> }) {
@@ -160,8 +169,15 @@ function GuessTurn({ api, id, onClose, onDraw }: { api: GamesApi; id: string; on
 }
 function TruthDare({ api, onClose }: { api: GamesApi; onClose: () => void }) {
   const space = useSpace(); const toast = useToast();
-  const [view, setView] = usePoll<TdView | null>(useCallback(() => api.truthDare(), [api]), 1200);
-  const act = async (body: Record<string, unknown>) => { try { setView(await api.tdAction(body)); } catch (e) { toast(nice(e), { tone: 'error' }); } };
+  const [view, setView, refresh] = usePoll<TdView | null>(useCallback(() => api.truthDare(), [api]), 1200);
+  // Each move is also announced over the call, so the others' screens update at once instead of on the next poll
+  // (some browsers, Firefox among them, could lag behind until the game was reopened).
+  const call = useCall();
+  useEffect(() => call.onParty(m => { if (m.kind === 'game-refresh' && m.game === 'td') refresh(); }), [call, refresh]);
+  const act = async (body: Record<string, unknown>) => {
+    try { setView(await api.tdAction(body)); try { call.sendParty({ w: 'party', kind: 'game-refresh', game: 'td' }); } catch { /* not on a call */ } }
+    catch (e) { toast(nice(e), { tone: 'error' }); }
+  };
   if (view === undefined) return <Sheet title="Truth or Dare" onClose={onClose}><p className="muted">Shuffling the cards…</p></Sheet>;
   if (!view) return <Sheet title="Truth or Dare" onClose={onClose}><Button onClick={() => void act({ action: 'start' })}>Start a new game</Button></Sheet>;
   const myId = space.user.id; const mine = view.turn === myId; const asked = view.spicyAsked.includes(myId); const card = view.card;

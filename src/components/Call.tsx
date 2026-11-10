@@ -481,6 +481,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     </div>}
     {call && phase !== 'incoming' && !expanded && !inPip && (call.video || docked !== call.code) && <MiniCall others={others} self={local && !cameraOff ? local : null} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
       {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
+      {!pip.supported && canFloat && <IconButton size="sm" icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
       <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={() => finish()} />
     </>} />}
     {inPip && call && createPortal(phase === 'incoming' ? <div className="pip-callview"><div className="pip-ring">
