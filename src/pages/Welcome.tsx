@@ -1,5 +1,6 @@
 // Sign-in page: one calm screen. A plain headline, one sentence, the Google button, and three facts.
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Wordmark } from '../components/Brand';
 import { Notice } from '../components/ui';
 import { ANDROID_LIVE, ANDROID_URL } from '../components/GetApp';
@@ -27,7 +28,7 @@ export default function Welcome() {
   return <div className="w-page">
     <div className="w-glow" aria-hidden="true" />
     <header className="w-top">
-      <Wordmark size={20} />
+      <Link to="/" aria-label="Our Space home" style={{ textDecoration: 'none' }}><Wordmark size={20} /></Link>
       {ANDROID_LIVE ? <a className="w-link" href={ANDROID_URL} target="_blank" rel="noreferrer">Get the Android app</a>
         : <span className="w-link w-soon">Android app <em>coming soon</em></span>}
     </header>

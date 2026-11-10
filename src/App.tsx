@@ -9,6 +9,7 @@ import { CallProvider } from './components/Call';
 import { PipProvider } from './lib/pip';
 import { OfflineBar } from './components/OfflineBar';
 import Welcome from './pages/Welcome';
+import Landing from './pages/Landing';
 import Home from './pages/Home';
 import Rooms from './pages/Rooms';
 import Library from './pages/Library';
@@ -26,8 +27,10 @@ function Gate() {
   const space = useSpace();
   const location = useLocation();
   if (!space.signedIn) {
-    // Keep invite links working through sign-in.
-    if (location.pathname === '/join') sessionStorage.setItem('ourspace.afterSignIn', location.pathname + location.search);
+    // The front page explains Our Space; "Log in" leads to /signin. Every other link (an invite, a room) goes
+    // straight to sign-in and comes back to where it pointed afterwards.
+    if (location.pathname === '/') return <Landing />;
+    if (location.pathname === '/join' || location.pathname.startsWith('/room/')) sessionStorage.setItem('ourspace.afterSignIn', location.pathname + location.search);
     return <Welcome />;
   }
   const after = sessionStorage.getItem('ourspace.afterSignIn');
