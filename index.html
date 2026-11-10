@@ -3,20 +3,86 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Our Space · Together, from anywhere</title>
-    <meta name="description" content="Private rooms to watch YouTube in sync, chat privately, call, play and keep goals together, from anywhere." />
+    <title>Our Space – Watch Together Online: YouTube, Netflix, Prime Video & more</title>
+    <meta name="description" content="Private rooms to watch YouTube, Netflix, Prime Video, Disney+ and more in sync, video call, chat privately, play games and keep goals together, from anywhere. Free." />
+    <link rel="canonical" href="https://getourspace.com/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="theme-color" content="#070A14" />
-    <meta property="og:title" content="Our Space" />
-    <meta property="og:description" content="Together, from anywhere. Watch in sync, call, play and keep goals together." />
-    <meta property="og:image" content="icon-512.png" />
+    <meta name="application-name" content="Our Space" />
+
+    <!-- Link previews (WhatsApp, Instagram, iMessage, LinkedIn, X, Facebook) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Our Space" />
+    <meta property="og:url" content="https://getourspace.com/" />
+    <meta property="og:title" content="Our Space – Watch together, from anywhere" />
+    <meta property="og:description" content="Watch YouTube, Netflix, Prime Video and more in sync, with a video call on top, private chat, games, goals and plans. One private room for you and your people." />
+    <meta property="og:image" content="https://getourspace.com/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Our Space: watch together, from anywhere" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Our Space – Watch together, from anywhere" />
+    <meta name="twitter:description" content="Watch YouTube, Netflix, Prime Video and more in sync, call, chat privately, play and keep goals together." />
+    <meta name="twitter:image" content="https://getourspace.com/og-image.jpg" />
+
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preconnect" href="https://www.youtube.com" />
     <link rel="preconnect" href="https://i.ytimg.com" />
+
+    <!-- Tells Google what Our Space is (brand results, app info). Keep it in line with the front page. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://getourspace.com/#org",
+          "name": "Our Space",
+          "url": "https://getourspace.com/",
+          "logo": "https://getourspace.com/icon-512.png",
+          "sameAs": ["https://www.instagram.com/meetinourspace/"]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://getourspace.com/#website",
+          "name": "Our Space",
+          "alternateName": ["Our Space app", "getourspace"],
+          "url": "https://getourspace.com/",
+          "publisher": { "@id": "https://getourspace.com/#org" }
+        },
+        {
+          "@type": "WebApplication",
+          "name": "Our Space",
+          "url": "https://getourspace.com/",
+          "description": "Private rooms to watch YouTube, Netflix, Prime Video and more in sync, video call while you watch, chat privately, play games for two and keep goals and plans together, from anywhere.",
+          "applicationCategory": "SocialNetworkingApplication",
+          "operatingSystem": "Web browser (Chrome, Edge, Firefox, Safari); Android app coming soon",
+          "image": "https://getourspace.com/og-image.jpg",
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "publisher": { "@id": "https://getourspace.com/#org" },
+          "featureList": [
+            "Watch YouTube together in perfect sync: search or paste a link, play and pause for everyone",
+            "Watch Netflix, Prime Video, Apple TV+, Disney+, HBO Max, Crunchyroll, JioHotstar, Sony LIV and ZEE5 together with the Our Space browser extension, each person on their own account",
+            "Shared Up next queue with drag to reorder, shared volume, personal and room playlists",
+            "Voice and video calls, one-to-one or the whole room, with faces floating over the video",
+            "Floating picture-in-picture window that keeps playing while you do other things",
+            "End-to-end encrypted private chat with photos and files up to 16 MB and sent, delivered and seen ticks",
+            "Chat history kept on your own devices, backup to a folder you choose, and a QR code to copy chats to a computer",
+            "Games for two: Scribble, Truth or Dare (sweet, fun or spicy) and How well do you know me, with monthly scores",
+            "Shared goals with step counting, cheers, streaks and monthly records",
+            "Plans for movie dates, study dates and playdates with reminders one hour before",
+            "Private, invite-only rooms for couples, best friends and family far apart"
+          ]
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>Our Space is a private room to watch YouTube, Netflix, Prime Video and more in sync, call, chat, play games and keep goals together, from anywhere. Please turn on JavaScript to use it.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

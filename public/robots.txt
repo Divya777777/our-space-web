@@ -1,0 +1,9 @@
+# Our Space — https://getourspace.com
+User-agent: *
+Allow: /
+# App screens behind sign-in: nothing useful for search.
+Disallow: /room/
+Disallow: /join
+Disallow: /signin
+
+Sitemap: https://getourspace.com/sitemap.xml

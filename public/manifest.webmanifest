@@ -1,7 +1,7 @@
 {
   "name": "Our Space",
   "short_name": "Our Space",
-  "description": "Together, from anywhere.",
+  "description": "Watch YouTube, Netflix, Prime Video and more together in sync, call, chat privately, play and keep goals together, from anywhere.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#070A14",

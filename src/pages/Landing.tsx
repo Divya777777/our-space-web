@@ -7,7 +7,6 @@ import { Wordmark } from '../components/Brand';
 import { Icon, IconName } from '../components/Icon';
 import { Sheet } from '../components/ui';
 import { ANDROID_LIVE, ANDROID_URL, IOS_URL } from '../components/GetApp';
-import { backendUrl } from '../lib/account';
 import { HeroScene, CallDemo, ChatDemo, GamesDemo, GoalsDemo, PipDemo, StreamDemo, SyncDemo } from './LandingDemos';
 import './landing.css';
 
@@ -131,7 +130,7 @@ export default function Landing() {
           <span className={`lp-ico ${tone}`}><Icon name={icon} size={20} /></span><h3>{t}</h3><p>{b}</p>
         </article>)}
       </div>
-      <p className="lp-sec-note" data-reveal>Read the full <a href={`${backendUrl}/privacy`} target="_blank" rel="noreferrer">privacy policy</a>. Questions? <a href={`${backendUrl}/support`} target="_blank" rel="noreferrer">Ask us</a>.</p>
+      <p className="lp-sec-note" data-reveal>Read the full <a href={`${import.meta.env.BASE_URL}privacy/`}>privacy policy</a>. Questions? <a href={`${import.meta.env.BASE_URL}support/`}>Ask us</a>.</p>
     </section>
 
     {/* FAQ */}
@@ -157,9 +156,9 @@ export default function Landing() {
     <footer className="lp-foot">
       <Wordmark size={16} />
       <span className="grow" />
-      <a href={`${backendUrl}/privacy`} target="_blank" rel="noreferrer">Privacy</a>
-      <a href={`${backendUrl}/terms`} target="_blank" rel="noreferrer">Terms</a>
-      <a href={`${backendUrl}/support`} target="_blank" rel="noreferrer">Support</a>
+      <a href={`${import.meta.env.BASE_URL}privacy/`}>Privacy</a>
+      <a href={`${import.meta.env.BASE_URL}terms/`}>Terms</a>
+      <a href={`${import.meta.env.BASE_URL}support/`}>Support</a>
       <span className="lp-copy">© {new Date().getFullYear()} Our Space</span>
     </footer>
 

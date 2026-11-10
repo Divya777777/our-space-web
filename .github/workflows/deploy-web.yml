@@ -39,6 +39,17 @@ jobs:
           VITE_FIREFOX_EXTENSION_URL: ${{ vars.VITE_FIREFOX_EXTENSION_URL }}
       # GitHub Pages has no rewrites: serve the app for every path (room links, /join?code=…).
       - run: cp dist/index.html dist/404.html && touch dist/.nojekyll
+      # SEO: save the rendered front page into index.html (Google, Bing and link previews read real text), add FAQ
+      # data, copy privacy/terms/support onto this domain and write sitemap.xml. Never blocks a deploy.
+      - name: Prerender front page for search engines
+        continue-on-error: true
+        run: |
+          npm i --no-save playwright@1.49.1
+          npx playwright install --with-deps chromium
+          node scripts/prerender.mjs
+        env:
+          SITE_URL: https://getourspace.com
+          VITE_API_URL: ${{ vars.VITE_API_URL || 'https://our-space-stg.onrender.com' }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
