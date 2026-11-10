@@ -1,26 +1,31 @@
-// Netflix & Prime Video together: two glass tiles in the room, the one-time extension install (with a progress
+// Streaming services together (Netflix, Prime Video, Apple TV+, JioHotstar and more): glass tiles in the room, the one-time extension install (with a progress
 // ring that finishes when Chrome has added it), the "Join" invite, and the live party card.
 import { useEffect, useRef, useState } from 'react';
 import { Button, IconButton, Sheet } from './ui';
 import { Icon } from './Icon';
-import { EXTENSION_URL, Party, SERVICES, Service, TEST_ZIP, browserSupported, isFirefox, clock, closeStore, extension, openStore, useExtension } from '../lib/watchParty';
+import { EXTENSION_URL, FEATURED, availability, Party, SERVICES, Service, TEST_ZIP, browserSupported, isFirefox, clock, closeStore, extension, openStore, useExtension } from '../lib/watchParty';
 
 function Mark({ service, size = 40 }: { service: Service; size?: number }) {
   // Our own tile mark (not the services' logos): the service name's first letters on its colour.
-  return <span className={`svc-mark ${service}`} style={{ width: size, height: size, fontSize: size * .38 }} aria-hidden="true">{service === 'netflix' ? 'N' : 'PV'}</span>;
+  const s = SERVICES[service]; const len = s.mark.length;
+  return <span className="svc-mark" style={{ width: size, height: size, fontSize: size * (len >= 3 ? .3 : .38), background: `linear-gradient(150deg, ${s.from}, ${s.to})` }} aria-hidden="true">{s.mark}</span>;
 }
 
 export function StreamTiles({ onPick }: { onPick: (s: Service) => void }) {
-  return <section className="stream-tiles" aria-label="Watch Netflix or Prime Video together">
+  const [all, setAll] = useState(false);
+  const list = all ? (Object.keys(SERVICES) as Service[]) : FEATURED;
+  const more = Object.keys(SERVICES).length - FEATURED.length;
+  return <section className="stream-tiles" aria-label="Watch a streaming service together">
     <div className="row between"><p className="h3">Also watch together on</p><span className="tiny muted">Each of you uses your own account · on a computer</span></div>
     <div className="stream-row">
-      {(Object.keys(SERVICES) as Service[]).map(s => <button key={s} className={`stream-tile ${s}`} onClick={() => onPick(s)}>
+      {list.map(s => { const a = availability(s); return <button key={s} className={`stream-tile ${a.ok === 'no' ? 'off' : ''}`} style={{ ['--c' as string]: SERVICES[s].color, ['--g' as string]: SERVICES[s].glow }} onClick={() => onPick(s)} title={a.note || undefined}>
         <span className="stream-glow" aria-hidden="true" />
         <Mark service={s} />
-        <span className="col" style={{ alignItems: 'flex-start', gap: 2 }}><span className="stream-name">{SERVICES[s].name}</span><span className="tiny muted">In sync, on a video call</span></span>
+        <span className="col" style={{ alignItems: 'flex-start', gap: 2, minWidth: 0 }}><span className="stream-name">{SERVICES[s].name}</span><span className="tiny muted">{a.ok === 'no' ? 'Not available in your country' : 'In sync, on a video call'}</span></span>
         <span className="stream-go" aria-hidden="true"><Icon name="play" size={14} /></span>
-      </button>)}
+      </button>; })}
     </div>
+    <button className="stream-more" onClick={() => setAll(v => !v)} aria-expanded={all}>{all ? 'Show fewer' : `${more} more: Disney+, HBO Max, Crunchyroll, Sony LIV, ZEE5`}<Icon name={all ? 'back' : 'fwd'} size={14} /></button>
   </section>;
 }
 
@@ -79,7 +84,7 @@ export function InstallSheet({ service, onDone, onClose }: { service: Service; o
 }
 
 export function PartyInvite({ invite, onJoin, onDismiss }: { invite: NonNullable<Party['invite']>; onJoin: () => void; onDismiss: () => void }) {
-  return <div className={`party-invite glass ${invite.service}`} role="status">
+  return <div className="party-invite glass" style={{ boxShadow: `0 18px 40px -22px ${SERVICES[invite.service].glow}` }} role="status">
     <Mark service={invite.service} size={36} />
     <span className="grow"><b>{invite.fromName.split(' ')[0]}</b> wants to watch {SERVICES[invite.service].name} together<span className="tiny muted" style={{ display: 'block' }}>Opens in a new tab, in sync, with your faces on top</span></span>
     <Button size="sm" onClick={onJoin}>Join</Button>
@@ -97,7 +102,7 @@ export function PartyCard({ party, onToggle, onResync, onEnd }: { party: Party; 
         : !party.peers.length ? 'Waiting for the others to join…'
           : waitingFor.length ? `Waiting for ${waitingFor.join(' & ')} to open it…` : 'Getting ready…';
   const l = party.local;
-  return <section className={`party-card glass ${party.service} ${party.status}`} aria-label={`${svc.name} together`}>
+  return <section className={`party-card glass ${party.service} ${party.status}`} style={{ ['--a1' as string]: svc.glow }} aria-label={`${svc.name} together`}>
     <span className="party-aura" aria-hidden="true" />
     <div className="row gap-16">
       <Mark service={party.service} size={52} />

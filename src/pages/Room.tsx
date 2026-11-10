@@ -23,7 +23,7 @@ import { Avatar, Button, IconButton, Notice, Segments, Sheet, Skeleton, copyText
 import { Icon } from '../components/Icon';
 import { Star } from '../components/Brand';
 import { InstallSheet, PartyCard, PartyInvite, StreamTiles } from '../components/StreamParty';
-import { Service, downloadTestVersion, extension, openStore, useWatchParty } from '../lib/watchParty';
+import { SERVICES, Service, availability, downloadTestVersion, extension, needsUpdate, openStore, useWatchParty } from '../lib/watchParty';
 
 type Tab = 'chat' | 'next' | 'people' | 'goals' | 'play';
 const TABS: Tab[] = ['chat', 'next', 'people', 'goals', 'play'];
@@ -136,9 +136,19 @@ export default function RoomPage() {
     watch.start(service, host);
   };
   const pickService = (service: Service, host = true) => {
+    // Not offered where you are: say so instead of opening a page that can't play.
+    const where = availability(service);
+    if (where.ok === 'no') { toast(where.note, { tone: 'error' }); return; }
+    if (where.ok === 'maybe') toast(where.note, { tone: 'info' });
     if (!others.length) { toast('Invite someone to this room first — then watch together.', { tone: 'error' }); return; }
     // Not installed yet: open the store window on this same click (browsers block it later), and wait.
     if (!extension.version) { if (!openStore()) downloadTestVersion(); setInstallFor({ service, host }); return; }
+    // An older extension doesn't know this service yet: get the new version (the store updates by itself; the test
+    // version is downloaded again).
+    if (needsUpdate(service, extension.version)) {
+      toast(`Update the Our Space extension to watch ${SERVICES[service].name} together.`, { tone: 'info', action: { label: 'Get update', run: () => { if (!openStore()) downloadTestVersion(); } } });
+      return;
+    }
     beginParty(service, host, true);
   };
   const floatNow = () => { if (pip.keepFloating && pip.supported && !pip.slots) void pip.open(); };

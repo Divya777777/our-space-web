@@ -129,17 +129,17 @@ export function ChatDemo() {
   </Chapter>;
 }
 
-/* 4. Netflix & Prime, in a browser on a laptop */
+/* 4. Streaming services (Netflix, Prime and more), in a browser on a laptop */
 export function StreamDemo() {
   const [ref, step] = useChapter(4);
-  return <Chapter n={4} tone="red" kicker="Netflix & Prime Video" title="Movie night, even on Netflix and Prime." step={step} chapterRef={ref}
-    lines={['On a computer, pick Netflix or Prime Video in your room.', 'Add the small Our Space extension once. That’s all the setup.', 'Each of you watches on your own account, perfectly in sync.', 'And your call floats on top the whole movie.']}>
+  return <Chapter n={4} tone="red" kicker="Netflix, Prime & more" title="Movie night on Netflix, Prime, Hotstar and more." step={step} chapterRef={ref}
+    lines={['On a computer, pick a service in your room: Netflix, Prime Video, Apple TV+, JioHotstar and five more.', 'Add the small Our Space extension once. That’s all the setup.', 'Each of you watches on your own account, perfectly in sync.', 'And your call floats on top the whole movie.']}>
     <Laptop className="solo">
       <div className="dm-tabs"><span className="dot" /><span className="dot" /><span className="dot" /><span className="dm-tab on">{step === 0 ? 'Our Space' : 'Netflix'}</span>
         <span className={`dm-ext ${step >= 1 ? 'on' : ''}`}><span className="dm-star" />{step >= 1 ? 'Our Space' : ''}</span></div>
       <div className="dm-video tall film">
         <div className="dm-film" />
-        {step === 0 && <div className="dm-pick"><p>Watch together on</p><div><span className="n">Netflix</span><span className="p">Prime Video</span><span className="y">YouTube</span></div></div>}
+        {step === 0 && <div className="dm-pick"><p>Watch together on</p><div><span className="n">Netflix</span><span className="p">Prime Video</span><span className="a">Apple TV+</span><span className="h">JioHotstar</span><span className="y">+5 more</span></div></div>}
         {step === 1 && <div className="dm-install"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" /><circle className="fill" cx="22" cy="22" r="19" /></svg><span>Setting up, only the first time</span></div>}
         <div className={`dm-badge ${step >= 2 ? 'on' : ''}`}><span className="dm-star" />Synced with Riya</div>
         <div className={`dm-faces ${step >= 3 ? 'on' : ''}`}><div className="dm-tile r"><Face who="R" size={46} /><span>Riya</span></div><div className="dm-tile a"><Face who="A" size={30} /><span>You</span></div></div>

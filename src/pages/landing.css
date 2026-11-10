@@ -430,3 +430,6 @@
 .lp-sec-note a { color: var(--lav); }
 @media (max-width: 1100px) { .lp-sec-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .lp-sec-grid { grid-template-columns: 1fr; } }
+.dm-pick div { flex-wrap: wrap; justify-content: center; max-width: 90%; }
+.dm-pick .a { background: linear-gradient(150deg, rgba(120,128,145,.6), rgba(25,27,33,.9)); }
+.dm-pick .h { background: linear-gradient(150deg, rgba(58,141,255,.6), rgba(107,43,217,.75)); }

@@ -46,7 +46,7 @@ export default function Welcome() {
       </div>
 
       <ul className="w-facts">
-        <li><b>In sync</b><span>YouTube anywhere, Netflix and Prime on a computer</span></li>
+        <li><b>In sync</b><span>YouTube anywhere; Netflix, Prime, Hotstar and more on a computer</span></li>
         <li><b>Face to face</b><span>Voice or video while you watch</span></li>
         <li><b>Just you two</b><span>End-to-end encrypted chat, only people you let in</span></li>
       </ul>

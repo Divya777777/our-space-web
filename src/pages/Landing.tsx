@@ -93,7 +93,7 @@ export default function Landing() {
 
     {/* Trust strip */}
     <section className="lp-strip" data-reveal>
-      <span><Icon name="play" size={16} />YouTube</span><span><Icon name="film" size={16} />Netflix</span><span><Icon name="video" size={16} />Prime Video</span>
+      <span><Icon name="play" size={16} />YouTube</span><span><Icon name="film" size={16} />Netflix</span><span><Icon name="video" size={16} />Prime Video</span><span><Icon name="film" size={16} />Apple TV+</span><span><Icon name="video" size={16} />JioHotstar</span><span><Icon name="plus" size={16} />5 more</span>
       <span><Icon name="lock" size={16} />End-to-end encrypted chat</span><span><Icon name="phone" size={16} />HD calls</span>
     </section>
 
@@ -125,7 +125,7 @@ export default function Landing() {
           ['users', 'gold', 'Invite-only rooms', 'No public profiles, no search, no strangers. Anyone new has to ask to join and you approve them. You can remove, block or report anyone at any time.'],
           ['shield', 'lav', 'No passwords to leak', 'You sign in with Google or Apple, so we never store a password. Every connection to Our Space is encrypted (HTTPS).'],
           ['heart', 'mint', 'No ads. No tracking. No selling.', 'We don’t show ads, don’t follow you around the web and never sell or share your data for marketing. Our Space will be funded by optional extras, never by advertisers.'],
-          ['film', 'rose', 'A browser extension that minds its business', 'It only works on Netflix, Prime Video and Our Space, and only reads play, pause and position to keep you in sync. It never sees your passwords, payments or other sites.'],
+          ['film', 'rose', 'A browser extension that minds its business', 'It only works on the streaming sites it supports and on Our Space, and only reads play, pause and position to keep you in sync. It never sees your passwords, payments or other sites.'],
           ['trash', 'gold', 'Leave whenever you like', 'Delete your account from the app or our website and your account data is erased. Your chats were never on our servers to begin with.'],
         ] as [IconName, string, string, string][]).map(([icon, tone, t, b], i) => <article key={t} className="glass-card lp-sec-item" data-reveal style={{ ['--d' as string]: `${(i % 4) * 70}ms` }}>
           <span className={`lp-ico ${tone}`}><Icon name={icon} size={20} /></span><h3>{t}</h3><p>{b}</p>
@@ -139,11 +139,11 @@ export default function Landing() {
       <h2 data-reveal>Questions</h2>
       {[
         ['Is it free?', 'Yes. Watching, calls, chat and games are free. Extras for people who want more may come later, and we’ll always say clearly what’s free.'],
-        ['Do we both need Netflix or Prime?', 'Yes. Each person watches on their own account; Our Space only keeps your play, pause and position in sync.'],
-        ['Does it work on phones?', 'In your phone’s browser today. The Android app is coming soon, with iPhone after that. Netflix and Prime sync needs a computer for now.'],
+        ['Which streaming services work?', 'YouTube everywhere. On a computer: Netflix, Prime Video, Apple TV+, JioHotstar, Disney+, HBO Max, Crunchyroll, Sony LIV and ZEE5. Each of you watches on your own account; Our Space only keeps play, pause and position in sync.'],
+        ['Does it work on phones?', 'In your phone’s browser today. The Android app is coming soon, with iPhone after that. Netflix, Prime and the other streaming services need a computer for now.'],
         ['Where are our chats stored?', 'On your own devices. Messages are end-to-end encrypted and only pass through our server, unreadable, until they reach the other person, then they’re deleted from it. Your history lives on your phone or computer, and the phone app can back it up to a folder you choose.'],
         ['Who can see our room?', 'Only the people you approve. Anyone new has to ask to join, and you can remove or block people anytime.'],
-        ['Do I need to install anything?', 'Not for YouTube, calls, chat or games. Only Netflix and Prime need the small browser extension, added once.'],
+        ['Do I need to install anything?', 'Not for YouTube, calls, chat or games. Only the streaming services (Netflix, Prime Video and the rest) need the small browser extension, added once.'],
       ].map(([q, a], i) => <details key={q} className="glass-card" data-reveal style={{ ['--d' as string]: `${i * 60}ms` }}><summary>{q}<Icon name="plus" size={18} /></summary><p>{a}</p></details>)}
     </section>
 

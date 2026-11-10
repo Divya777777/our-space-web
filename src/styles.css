@@ -728,3 +728,9 @@ button.self-tile.swap > .tile { position: absolute; inset: 0; width: 100%; heigh
 /* Dropping files on the chat */
 .chat-drop { position: relative; }
 .drop-hint { position: absolute; inset: 0; z-index: 5; display: grid; place-content: center; justify-items: center; gap: 8px; border-radius: 20px; border: 2px dashed rgba(200,182,255,.6); background: rgba(12,16,28,.82); backdrop-filter: blur(6px); color: var(--lav); font-weight: 600; pointer-events: none; }
+.stream-row { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.stream-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.stream-more { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); padding: 6px 12px; border-radius: 999px; background: rgba(255,255,255,.05); }
+.stream-more:hover { color: var(--text); background: rgba(255,255,255,.09); }
+.stream-tile.off { opacity: .5; filter: saturate(.3); }
+.stream-tile.off:hover { transform: none; box-shadow: none; }

@@ -4,11 +4,36 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { PartyMessage } from '../components/Call';
 
-export type Service = 'netflix' | 'prime';
-export const SERVICES: Record<Service, { name: string; color: string; glow: string }> = {
-  netflix: { name: 'Netflix', color: '#E50914', glow: 'rgba(229,9,20,.45)' },
-  prime: { name: 'Prime Video', color: '#1FA2FF', glow: 'rgba(31,162,255,.45)' },
+export type Service = 'netflix' | 'prime' | 'appletv' | 'hotstar' | 'disney' | 'max' | 'crunchyroll' | 'sonyliv' | 'zee5';
+/** Our own tile marks (letters on the service's colour), never the services' logos. `since`: the extension version
+ *  that first supports it (older installs are asked to update). */
+export const SERVICES: Record<Service, { name: string; color: string; glow: string; mark: string; from: string; to: string; since: string }> = {
+  netflix: { name: 'Netflix', color: '#E50914', glow: 'rgba(229,9,20,.45)', mark: 'N', from: '#FF3B45', to: '#B1060F', since: '0.1.0' },
+  prime: { name: 'Prime Video', color: '#1FA2FF', glow: 'rgba(31,162,255,.45)', mark: 'PV', from: '#48B8FF', to: '#0B6BC2', since: '0.1.0' },
+  appletv: { name: 'Apple TV+', color: '#A7B0C0', glow: 'rgba(167,176,192,.4)', mark: 'tv+', from: '#5A6170', to: '#1C1E24', since: '0.4.0' },
+  hotstar: { name: 'JioHotstar', color: '#1F80E0', glow: 'rgba(31,128,224,.45)', mark: 'JH', from: '#3A8DFF', to: '#6B2BD9', since: '0.4.0' },
+  disney: { name: 'Disney+', color: '#2F6BFF', glow: 'rgba(47,107,255,.45)', mark: 'D+', from: '#3E7BFF', to: '#0B1F6B', since: '0.4.0' },
+  max: { name: 'HBO Max', color: '#7A4DFF', glow: 'rgba(122,77,255,.45)', mark: 'HBO', from: '#8B5CFF', to: '#2A1272', since: '0.4.0' },
+  crunchyroll: { name: 'Crunchyroll', color: '#F47521', glow: 'rgba(244,117,33,.45)', mark: 'CR', from: '#FF9548', to: '#C2510A', since: '0.4.0' },
+  sonyliv: { name: 'Sony LIV', color: '#E8B04B', glow: 'rgba(232,176,75,.4)', mark: 'SL', from: '#F2C063', to: '#7A5410', since: '0.4.0' },
+  zee5: { name: 'ZEE5', color: '#9B4DDB', glow: 'rgba(155,77,219,.45)', mark: 'Z5', from: '#B467F0', to: '#4B1680', since: '0.4.0' },
 };
+// Where you are, roughly: only "India or not", read from this computer's time zone (nothing is looked up or sent).
+const inIndia = (() => { try { return /^Asia\/(Kolkata|Calcutta)$/.test(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch { return false; } })();
+/** Services that clearly aren't offered where you are ('no'), or might not be ('maybe'), with a short reason. */
+export function availability(svc: Service): { ok: 'yes' | 'maybe' | 'no'; note: string } {
+  if (svc === 'hotstar' && !inIndia) return { ok: 'no', note: 'JioHotstar is only available in India.' };
+  if (svc === 'disney' && inIndia) return { ok: 'no', note: 'In India, Disney+ shows are on JioHotstar.' };
+  if (svc === 'max' && inIndia) return { ok: 'no', note: 'HBO Max isn’t available in India. HBO shows are on JioHotstar.' };
+  if ((svc === 'sonyliv' || svc === 'zee5') && !inIndia) return { ok: 'maybe', note: `${SERVICES[svc].name} is mainly for India and may not be available where you are.` };
+  if (svc === 'max' || svc === 'disney') return { ok: 'maybe', note: `${SERVICES[svc].name} isn’t available in every country.` };
+  return { ok: 'yes', note: '' };
+}
+/** The four shown first in a room; the rest sit behind "More". */
+export const FEATURED: Service[] = ['netflix', 'prime', 'hotstar', 'appletv'];
+const num = (v: string) => v.split('.').map(n => parseInt(n, 10) || 0).reduce((a, n) => a * 1000 + n, 0);
+/** True when the installed extension is too old for this service. */
+export const needsUpdate = (svc: Service, installed: string) => !!installed && num(installed) < num(SERVICES[svc].since);
 export type PlayerState = { service: Service; id: string; url: string; title: string; t: number; paused: boolean; ready: boolean; duration: number };
 type ExtMsg = { type: string } & Record<string, unknown>;
 
