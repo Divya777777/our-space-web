@@ -19,6 +19,8 @@ function useChapter(steps: number) {
       const total = Math.max(1, el.offsetHeight - window.innerHeight);
       const p = clamp(-r.top / total);
       el.style.setProperty('--p', p.toFixed(4));
+      // --e: how far the chapter has risen into view (0 = just appearing at the bottom, 1 = pinned).
+      el.style.setProperty('--e', clamp(1 - r.top / window.innerHeight).toFixed(4));
       // The first step shows as soon as the chapter is pinned; the rest follow evenly.
       const s = Math.min(steps - 1, Math.floor(p * steps * 1.08));
       setStep(prev => (prev === s ? prev : s));
@@ -235,4 +237,28 @@ export function HeroScene() {
     <div className="hero-chip who"><Face who="A" size={26} /><Face who="R" size={26} /><span>Ahmedabad ⇄ Toronto</span></div>
     <div className="hero-hearts" aria-hidden="true">{['💜', '💚', '💜', '✨', '💜'].map((h, i) => <span key={i} style={{ ['--i' as string]: i }}>{h}</span>)}</div>
   </div>;
+}
+
+
+/** A slim rail at the side of the feature chapters: where you are, and a tap to jump. */
+const RAIL = ['Sync', 'Calls', 'Chat', 'Streaming', 'Games', 'Goals', 'Floating'];
+export function ChapterRail() {
+  const ref = useRef<HTMLElement>(null);
+  const [at, setAt] = useState(-1);
+  useEffect(() => {
+    const root = ref.current?.closest('.lp') as HTMLElement | null; if (!root) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0; const mid = window.innerHeight / 2; let cur = -1;
+      root.querySelectorAll<HTMLElement>('.ch').forEach((c, i) => { const r = c.getBoundingClientRect(); if (r.top <= mid && r.bottom >= mid) cur = i; });
+      setAt(prev => (prev === cur ? prev : cur));
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
+    update(); root.addEventListener('scroll', onScroll, { passive: true });
+    return () => { root.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); };
+  }, []);
+  const go = (i: number) => { const root = ref.current?.closest('.lp') as HTMLElement | null; const c = root?.querySelectorAll<HTMLElement>('.ch').item(i); if (root && c) root.scrollTo({ top: c.offsetTop + 2, behavior: 'smooth' }); };
+  return <nav ref={ref} className={`ch-rail ${at >= 0 ? 'on' : ''}`} aria-label="Features">
+    {RAIL.map((label, i) => <button key={label} className={i === at ? 'on' : ''} onClick={() => go(i)} aria-current={i === at ? 'true' : undefined}><span>{label}</span><i /></button>)}
+  </nav>;
 }

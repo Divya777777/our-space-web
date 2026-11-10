@@ -15,13 +15,15 @@ export function StreamTiles({ onPick }: { onPick: (s: Service) => void }) {
   const [all, setAll] = useState(false);
   const list = all ? (Object.keys(SERVICES) as Service[]) : FEATURED;
   const more = Object.keys(SERVICES).length - FEATURED.length;
+  // Phones and tablets: streaming services need a computer here (or the phone app), so one quiet line instead of tiles.
+  if (!browserSupported) return <p className="stream-note small muted"><Icon name="film" size={16} />Netflix, Prime Video and more play together on a computer, or in the Our Space phone app.</p>;
   return <section className="stream-tiles" aria-label="Watch a streaming service together">
     <div className="row between"><p className="h3">Also watch together on</p><span className="tiny muted">Each of you uses your own account · on a computer</span></div>
     <div className="stream-row">
       {list.map(s => { const a = availability(s); return <button key={s} className={`stream-tile ${a.ok === 'no' ? 'off' : ''}`} style={{ ['--c' as string]: SERVICES[s].color, ['--g' as string]: SERVICES[s].glow }} onClick={() => onPick(s)} title={a.note || undefined}>
         <span className="stream-glow" aria-hidden="true" />
         <Mark service={s} />
-        <span className="col" style={{ alignItems: 'flex-start', gap: 2, minWidth: 0 }}><span className="stream-name">{SERVICES[s].name}</span><span className="tiny muted">{a.ok === 'no' ? 'Not available in your country' : 'In sync, on a video call'}</span></span>
+        <span className="col" style={{ alignItems: 'flex-start', gap: 2, minWidth: 0 }}><span className="stream-name">{SERVICES[s].name}</span>{a.ok === 'no' && <span className="tiny muted">Not in your country</span>}</span>
         <span className="stream-go" aria-hidden="true"><Icon name="play" size={14} /></span>
       </button>; })}
     </div>

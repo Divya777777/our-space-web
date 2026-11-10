@@ -264,10 +264,19 @@ export function useWatchParty(call: Call, meName: string) {
   // Call ended: the party ends with it.
   const wasLive = useRef(false);
   useEffect(() => {
-    if (call.liveWith > 0) { wasLive.current = true; setNote(n => (n.startsWith('The call ended') ? '' : n)); return; }
+    if (call.liveWith > 0) {
+      setNote(n => (n.startsWith('The call ended') ? '' : n));
+      // The call connected after the party started: say again what we're watching, so the invite isn't lost.
+      if (!wasLive.current && service) {
+        const s = st.current;
+        if (s.host) { send(msg('invite', { service, name: meName })); if (s.sessionId && s.local) send(msg('title', { service, id: s.sessionId, url: s.local.url, title: s.local.title })); }
+        else send(msg('joined', { service, name: meName }));
+      }
+      wasLive.current = true; return;
+    }
     if (wasLive.current && service) setNote('The call ended. Start a call to keep watching together.');
     wasLive.current = false;
-  }, [call.liveWith, service]);
+  }, [call.liveWith, service, send, meName]);
 
   // The Our Space badge on the Netflix / Prime page mirrors the party's status.
   const names = Object.values(peers).map(p => p.name.split(' ')[0]).join(' & ');

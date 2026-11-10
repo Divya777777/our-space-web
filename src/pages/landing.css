@@ -433,3 +433,25 @@
 .dm-pick div { flex-wrap: wrap; justify-content: center; max-width: 90%; }
 .dm-pick .a { background: linear-gradient(150deg, rgba(120,128,145,.6), rgba(25,27,33,.9)); }
 .dm-pick .h { background: linear-gradient(150deg, rgba(58,141,255,.6), rgba(107,43,217,.75)); }
+
+/* Chapters rise into place: the device tilts up from the table and sharpens as its chapter arrives. */
+.ch { --e: 1; }
+.ch-stage { transform: perspective(1600px) rotateX(calc((1 - var(--e)) * 16deg)) translateY(calc((1 - var(--e)) * 60px)) scale(calc(.88 + var(--e) * .12)); transform-origin: 50% 100%; opacity: calc(.25 + var(--e) * .75); will-change: transform; }
+.ch-copy { opacity: calc(var(--e) * 1.4 - .4); transform: translateY(calc((1 - var(--e)) * 24px)); }
+/* A soft floor glow under each device, in the chapter's colour, that breathes */
+.ch-stage::after { content: ''; position: absolute; left: 18%; right: 18%; bottom: -2%; height: 26px; border-radius: 50%; background: radial-gradient(closest-side, color-mix(in srgb, var(--tone) 55%, transparent), transparent); filter: blur(14px); opacity: .55; animation: chFloor 5s ease-in-out infinite alternate; z-index: -1; }
+@keyframes chFloor { to { opacity: .9; transform: scaleX(1.08); } }
+/* Step dots: the current one stretches */
+.ch-dots i { transition: background .35s, width .35s var(--ease); }
+.ch-dots i.on:last-of-type, .ch-dots i.on:has(+ i:not(.on)) { width: 40px; }
+/* Feature rail */
+.ch-rail { position: fixed; right: 18px; top: 50%; transform: translateY(-50%) translateX(20px); z-index: 9; display: flex; flex-direction: column; gap: 4px; opacity: 0; pointer-events: none; transition: opacity .4s, transform .4s var(--ease); }
+.ch-rail.on { opacity: 1; transform: translateY(-50%); pointer-events: auto; }
+.ch-rail button { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 5px 4px; color: var(--quiet); font-size: 12px; }
+.ch-rail button span { opacity: 0; transform: translateX(6px); transition: opacity .25s, transform .25s; }
+.ch-rail:hover button span, .ch-rail button.on span { opacity: 1; transform: none; }
+.ch-rail button i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.2); transition: all .3s var(--ease); }
+.ch-rail button.on { color: var(--text); }
+.ch-rail button.on i { background: var(--lav); box-shadow: 0 0 0 4px rgba(200,182,255,.18); transform: scale(1.15); }
+@media (max-width: 960px) { .ch-rail { display: none; } }
+@media (prefers-reduced-motion: reduce) { .ch-stage, .ch-copy { transform: none; opacity: 1; } .ch-stage::after { animation: none; } }

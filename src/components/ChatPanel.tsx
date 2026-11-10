@@ -28,6 +28,7 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
   const [text, setText] = useState('');
   const [progress, setProgress] = useState<string>('');
   const [linking, setLinking] = useState(false);
+  const [hideLink, setHideLink] = useState(() => { try { return localStorage.getItem('ourspace.hideLinkCta') === '1'; } catch { return false; } });
   const end = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const items = chat.items.filter(i => !isBlockedId(blocked, i.from));
@@ -79,11 +80,11 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
     {dropping && <div className="drop-hint" aria-hidden="true"><Icon name="paperclip" size={22} />Drop to send</div>}
     <div className="chat" style={{ flex: 1 }}>
       <p className="tiny quiet row gap-8" style={{ justifyContent: 'center', padding: '4px 0 10px', textAlign: 'center' }}><Icon name="lock" size={13} />Private. Only people in this room can read it. History stays in this browser.</p>
-      <button className="link-cta" onClick={() => setLinking(true)}>
+      {!hideLink && <div className="link-cta-wrap"><button className="link-cta" onClick={() => setLinking(true)}>
         <span className="center" style={{ width: 36, height: 36, borderRadius: 12, background: 'rgba(200,182,255,.18)', color: 'var(--lav)', flex: 'none' }}><Icon name="phone" size={18} /></span>
         <span className="grow"><span className="small" style={{ fontWeight: 600, display: 'block' }}>Bring older chats from your phone</span><span className="tiny muted">Scan a QR code with Our Space on your phone</span></span>
-        <Icon name="fwd" size={16} />
       </button>
+        <button className="link-cta-x" aria-label="Hide this (you can find it under You)" title="Hide (it stays under You)" onClick={() => { setHideLink(true); try { localStorage.setItem('ourspace.hideLinkCta', '1'); } catch { /* fine */ } }}><Icon name="x" size={14} /></button></div>}
       {!chat.loaded && <p className="small muted">Loading messages…</p>}
       {chat.loaded && !items.length && <div className="col gap-8" style={{ alignItems: 'center', textAlign: 'center', padding: '40px 12px' }}><Icon name="chat" size={28} /><p className="h3">Say hi</p><p className="small muted">Messages, photos and files up to 16 MB. Drop a file here to send it.</p></div>}
       {items.map(i => {

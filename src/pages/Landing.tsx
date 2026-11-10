@@ -7,7 +7,7 @@ import { Wordmark } from '../components/Brand';
 import { Icon, IconName } from '../components/Icon';
 import { Sheet } from '../components/ui';
 import { ANDROID_LIVE, ANDROID_URL, IOS_URL } from '../components/GetApp';
-import { HeroScene, CallDemo, ChatDemo, GamesDemo, GoalsDemo, PipDemo, StreamDemo, SyncDemo } from './LandingDemos';
+import { ChapterRail, HeroScene, CallDemo, ChatDemo, GamesDemo, GoalsDemo, PipDemo, StreamDemo, SyncDemo } from './LandingDemos';
 import './landing.css';
 
 const onPhone = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
@@ -98,6 +98,7 @@ export default function Landing() {
 
     {/* Each feature, playing as you scroll */}
     <div id="how" />
+    <ChapterRail />
     <SyncDemo />
     <div id="features" />
     <CallDemo />

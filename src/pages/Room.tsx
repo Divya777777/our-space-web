@@ -100,7 +100,22 @@ export default function RoomPage() {
     const ms = navigator.mediaSession; if (!ms) return;
     try { ms.playbackState = playingNow ? 'playing' : gate.playback ? 'paused' : 'none'; if (room && gate.playback) ms.metadata = new MediaMetadata({ title: title || room.name, artist: room.name, album: 'Our Space', artwork: [{ src: `https://i.ytimg.com/vi/${gate.playback.videoId}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' }] }); } catch { /* unsupported */ }
   }, [playingNow, title, room?.name, gate.playback?.videoId]);
-  useEffect(() => { document.title = room ? `${room.name} · Our Space` : 'Our Space'; return () => { document.title = 'Our Space'; }; }, [room?.name]);
+  // The browser tab shows a dot when there are unread messages, so you notice from another tab.
+  useEffect(() => { document.title = room ? `${unread ? '● ' : ''}${room.name} · Our Space` : 'Our Space'; return () => { document.title = 'Our Space'; }; }, [room?.name, unread]);
+  // Keyboard: Space or K = play / pause for everyone, M = mute yourself on the call (never while typing).
+  const keys = useRef<{ toggle?: () => void }>({});
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(el.tagName))) return;
+      const k = e.key.toLowerCase();
+      if (k === ' ' || k === 'k') { e.preventDefault(); keys.current.toggle?.(); }
+      else if (k === 'm' && call.activeCode === code) { e.preventDefault(); call.toggleMute(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [call, code]);
 
   const others = useMemo(() => (room?.members || []).filter(m => m.id !== space.user.id), [room?.members, space.user.id]);
   // Netflix / Prime Video together (web + extension), synced over the call.
@@ -159,6 +174,7 @@ export default function RoomPage() {
     if (!pb.playing) floatNow();
     void space.play(code, pb.videoId, !pb.playing, position.current || positionNow(pb)).catch(fail);
   };
+  keys.current.toggle = toggle;
   const next = () => { if (pb && room.queue?.length) void space.queue(code, 'next', { from: pb.videoId }).catch(fail); };
   const shareToChat = async (text: string) => { await chat.sendText(text); };
 
@@ -189,7 +205,7 @@ export default function RoomPage() {
   const top = <div className="room-top">
     <IconButton icon="back" label="Back home" onClick={() => nav('/')} />
     <div className="grow" style={{ minWidth: 0 }}>
-      <h1 className="ellipsis" style={{ fontFamily: 'var(--display)', fontWeight: 300, fontSize: 24, textTransform: 'uppercase', letterSpacing: '-.01em' }}>{room.name}</h1>
+      <h1 className="ellipsis room-name" title={room.name}>{room.name}</h1>
       <button className="small muted row gap-4" onClick={async () => { if (await copyText(room.code)) toast('Room code copied.', { icon: 'copy' }); }} aria-label={`Copy room code ${room.code}`}><span className="room-code">{room.code}</span> <Icon name="copy" size={13} /></button>
     </div>
     <div className="stack" aria-label={`${room.members.length} people in this room`}>{room.members.slice(0, 4).map(m => <Avatar key={m.id} name={m.name} size={34} />)}</div>
@@ -252,7 +268,9 @@ export default function RoomPage() {
       {installFor && <InstallSheet service={installFor.service} onClose={() => setInstallFor(null)} onDone={() => { const f = installFor; setInstallFor(null); beginParty(f.service, f.host, false); }} />}
       <div className="col gap-8"><p className="h3">Plans</p><Plans code={code} compact /></div>
     </section>
-    <aside className="side glass" aria-label="Room panel">
+    {/* Phones: the panel sits below the video, so a small button jumps to the chat (with a dot for new messages). */}
+    <button className="room-jump glass" onClick={() => { setTab('chat'); document.getElementById('room-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} aria-label={unread ? 'Open chat, new messages' : 'Open chat'}><Icon name="chat" size={18} />Chat{unread && <i />}</button>
+    <aside className="side glass" id="room-panel" aria-label="Room panel">
       <div className="side-tabs"><Segments label="Room panel" value={tab} onChange={setTab} options={[
         { value: 'chat', label: 'Chat', dot: unread }, { value: 'next', label: 'Up next' },
         { value: 'people', label: 'People', dot: admin && room.requests.length > 0 }, { value: 'goals', label: 'Goals' }, { value: 'play', label: 'Play' },

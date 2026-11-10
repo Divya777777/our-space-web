@@ -69,14 +69,14 @@ export function CreateRoomSheet({ onClose }: { onClose: () => void }) {
   const limit = space.plan.limits && space.plan.usage.rooms >= space.plan.limits.rooms;
   const create = async () => {
     setBusy(true); setError('');
-    try { const room = await space.createRoom(name); toast('Room created. Invite someone to start.', { icon: 'check' }); onClose(); nav(`/room/${room.code}`); }
+    try { const room = await space.createRoom(name.trim() || 'Our little universe'); toast('Room created. Invite someone to start.', { icon: 'check' }); onClose(); nav(`/room/${room.code}`); }
     catch (e) { setError(plusLimit(e) ? 'You’ve reached the free plan’s room limit. Delete a room you no longer use to make a new one.' : (e as Error).message); }
     finally { setBusy(false); }
   };
   return <Sheet title="Create a room" sub="A private place for you and your people. Only people you approve can come in." onClose={onClose}
-    footer={<Button block busy={busy} disabled={!name.trim()} onClick={() => void create()}>Create room</Button>}>
+    footer={<Button block busy={busy} onClick={() => void create()}>Create room</Button>}>
     <div className="field"><label htmlFor="room-name">Room name</label>
-      <input id="room-name" className="input" value={name} maxLength={50} placeholder="Our little universe" onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && name.trim()) void create(); }} /></div>
+      <input id="room-name" className="input" value={name} maxLength={50} placeholder="Our little universe" onChange={e => setName(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') void create(); }} /></div>
     <div className="col gap-8"><div className="row between"><span className="small muted">Need an idea?</span><button className="btn ghost sm" onClick={() => setIdeas(roomIdeas(4, ideas))}>More ideas</button></div>
       <div className="chips">{ideas.map(i => <button key={i} className="chip" onClick={() => setName(i)}>{i}</button>)}</div></div>
     {limit && <Notice tone="info">You have {space.plan.usage.rooms} of {space.plan.limits!.rooms} rooms on the free plan.</Notice>}

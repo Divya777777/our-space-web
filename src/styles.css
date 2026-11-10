@@ -740,3 +740,20 @@ button.self-tile.swap > .tile { position: absolute; inset: 0; width: 100%; heigh
 .page-ambient > *:not(.ambient) { position: relative; z-index: 1; }
 .ambient img:not(:only-child) { animation-name: breatheT; }
 @keyframes breatheT { to { transform: scale(1.12); } }
+
+/* ---- Polish pass (Nov 11) ---- */
+.room-name { font-family: var(--display); font-weight: 300; font-size: 24px; text-transform: uppercase; letter-spacing: -.01em; }
+.stream-row { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.stream-tile { padding: 12px 12px 12px 12px; border-radius: 20px; gap: 12px; }
+.stream-name { font-size: 15px; }
+.stream-note { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); }
+.link-cta-wrap { position: relative; }
+.link-cta-wrap .link-cta { padding-right: 40px; }
+.link-cta-x { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); }
+.link-cta-x:hover { background: rgba(255,255,255,.1); color: var(--text); }
+.room-jump { display: none; }
+@media (max-width: 900px) {
+  .room-name { font-size: 18px; }
+  .room > .room-jump { position: fixed; right: 14px; bottom: 96px; z-index: 40; display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 999px; font-weight: 600; font-size: 14px; color: var(--text); box-shadow: var(--depth-near); }
+  .room-jump i { width: 8px; height: 8px; border-radius: 50%; background: var(--rose); }
+}

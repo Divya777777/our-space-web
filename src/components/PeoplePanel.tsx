@@ -26,7 +26,7 @@ export function PeoplePanel({ room }: { room: Room }) {
     {admin && room.requests.length > 0 && <div className="col gap-8">
       <p className="small muted">Waiting to come in</p>
       {room.requests.map(p => <div key={p.id} className="inset row" style={{ padding: 12 }}>
-        <Avatar name={p.name} size={38} /><span className="grow h3 ellipsis">{p.name}</span>
+        <Avatar name={p.name} size={38} /><span className="grow h3 ellipsis" title={p.name}>{firstName(p.name)}</span>
         <Button size="sm" variant="secondary" disabled={busy === p.id} onClick={() => void decide(p.id, false)}>Not now</Button>
         <Button size="sm" busy={busy === p.id} onClick={() => void decide(p.id, true)}>Let them in</Button>
       </div>)}
