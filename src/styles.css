@@ -734,3 +734,9 @@ button.self-tile.swap > .tile { position: absolute; inset: 0; width: 100%; heigh
 .stream-more:hover { color: var(--text); background: rgba(255,255,255,.09); }
 .stream-tile.off { opacity: .5; filter: saturate(.3); }
 .stream-tile.off:hover { transform: none; box-shadow: none; }
+/* Home ambience: several thumbnails take turns, cross-fading slowly */
+.ambient img:not(:only-child) { opacity: 0; transition: opacity 2.4s ease; }
+.ambient img.on:not(:only-child) { opacity: .34; }
+.page-ambient > *:not(.ambient) { position: relative; z-index: 1; }
+.ambient img:not(:only-child) { animation-name: breatheT; }
+@keyframes breatheT { to { transform: scale(1.12); } }

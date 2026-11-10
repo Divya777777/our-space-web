@@ -7,6 +7,7 @@ import { useSpace } from '../lib/space';
 import { Avatar, Button, Notice, Skeleton, firstName } from '../components/ui';
 import { CreateRoomSheet, JoinRoomSheet } from '../components/RoomBits';
 import { CoverArt, roomVideos } from '../components/CoverArt';
+import { Ambient } from '../components/Ambient';
 import { Plans } from '../components/Planner';
 import { Icon } from '../components/Icon';
 import { Checklist, FirstRun } from '../components/GettingStarted';
@@ -25,7 +26,9 @@ export default function Home() {
   const lead = !!live && live.code === ordered[0]?.code && lastVisitOf(live.code) > 0;
   const waiting = space.rooms.filter(r => r.hostId === space.user.id && r.requests.length > 0);
   const others = live ? live.members.filter(m => m.id !== space.user.id) : [];
-  return <div className="page">
+  return <div className="page page-ambient">
+    {/* The featured room's videos glow softly behind Home, changing as you pick another room. */}
+    {live && <Ambient ids={roomVideos(live, space.playlists)} />}
     {!fresh && <div style={{ marginBottom: 18 }}><NotifyPrompt /></div>}
     {!fresh && <div className="row between wrap gap-16">
       <div className="col gap-4"><p className="muted">{greeting()}, {firstName(space.user.name)}</p><h1 className="display" style={{ fontSize: 40 }}>Where to <b>tonight?</b></h1></div>
