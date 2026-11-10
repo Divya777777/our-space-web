@@ -112,7 +112,7 @@ export function ChatDemo() {
     { text: 'did you see that ending?? 😭' }, { me: true, text: 'I’m not okay' }, { photo: true }, { me: true, text: 'saving this one 🥹' },
   ];
   return <Chapter n={3} tone="rose" kicker="Private chat" title="Talk, share photos, keep it between you." step={step} chapterRef={ref}
-    lines={['Messages, photos and files, right next to what you’re watching.', 'Reply without pausing anything.', 'Drop in photos. Tap to save them.', 'Everything is end-to-end encrypted.', 'Only the people in your room can read it. Not even us.']}>
+    lines={['Messages, photos and files, right next to what you’re watching.', 'Reply without pausing anything.', 'Drop in photos. Tap to save them.', 'Everything is end-to-end encrypted: only you two can read it.', 'Your chats are saved on your own devices and in your own backup folder, not on our servers.']}>
     <div className="dm-pair chat">
       <Phone>
         <div className="dm-chathead"><Face who="R" size={34} /><span><b>Riya</b><small>{step >= 1 ? 'online' : 'last seen just now'}</small></span><Icon name="video" size={18} /></div>
@@ -122,7 +122,7 @@ export function ChatDemo() {
           </div>)}
           <div className={`dm-typing ${step === 3 ? 'on' : ''}`}><i /><i /><i /></div>
         </div>
-        <div className={`dm-lock ${step >= 3 ? 'on' : ''}`}><Icon name="lock" size={13} />End-to-end encrypted</div>
+        <div className={`dm-lock ${step >= 3 ? 'on' : ''}`}><Icon name={step >= 4 ? 'phone' : 'lock'} size={13} />{step >= 4 ? 'Saved on your phone · not on servers' : 'End-to-end encrypted'}</div>
         <div className="dm-compose"><Icon name="paperclip" size={16} /><span>Message</span><i><Icon name="send" size={14} /></i></div>
       </Phone>
     </div>
@@ -203,4 +203,36 @@ export function PipDemo() {
       </div>
     </Laptop>
   </Chapter>;
+}
+
+/** The big picture next to the headline: your laptop and Riya's phone playing the same thing, joined by a beam of
+ *  light, with the call, a message and little hearts floating between them. Loops on its own. */
+export function HeroScene() {
+  return <div className="hero-rig">
+    <svg className="hero-beam" viewBox="0 0 600 400" preserveAspectRatio="none" aria-hidden="true">
+      <defs><linearGradient id="beam" x1="0" x2="1"><stop offset="0" stopColor="#C8B6FF" stopOpacity="0" /><stop offset=".5" stopColor="#C8B6FF" /><stop offset="1" stopColor="#B6DDCF" stopOpacity="0" /></linearGradient></defs>
+      <path d="M150 210 C 260 40, 420 60, 500 190" />
+      <path className="run" d="M150 210 C 260 40, 420 60, 500 190" />
+    </svg>
+    <Laptop className="hero-lap">
+      <RoomBar live="24:10" />
+      <div className="dm-video fill"><Scene className="loop" />
+        <div className="dm-faces on hero-faces"><div className="dm-tile r"><Face who="R" size={40} /></div><div className="dm-tile a"><Face who="A" size={26} /></div></div>
+      </div>
+      <div className="dm-ctrl"><span className="dm-pp"><Icon name="pause" size={12} /></span><span className="dm-track"><i className="hero-prog" /></span><span className="dm-t">1:12:40</span></div>
+    </Laptop>
+    <Phone className="hero-phn">
+      <RoomBar />
+      <div className="dm-video"><Scene className="loop" /></div>
+      <div className="dm-ctrl"><span className="dm-pp"><Icon name="pause" size={12} /></span><span className="dm-track"><i className="hero-prog" /></span></div>
+      <div className="hero-chat">
+        <div className="dm-msg on">this part!! 😭</div>
+        <div className="dm-msg me on">I’m not okay</div>
+        <div className="dm-msg on hero-late">rewind 10s?</div>
+      </div>
+    </Phone>
+    <div className="hero-chip sync"><span className="dot" />In sync · 0.1 s</div>
+    <div className="hero-chip who"><Face who="A" size={26} /><Face who="R" size={26} /><span>Ahmedabad ⇄ Toronto</span></div>
+    <div className="hero-hearts" aria-hidden="true">{['💜', '💚', '💜', '✨', '💜'].map((h, i) => <span key={i} style={{ ['--i' as string]: i }}>{h}</span>)}</div>
+  </div>;
 }

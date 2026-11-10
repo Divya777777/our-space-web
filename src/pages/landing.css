@@ -386,3 +386,47 @@
   .dm-sync-pill { top: auto; bottom: 4%; left: 30%; }
   .dm-next { gap: 6px; } .dm-next p, .dm-next div { font-size: 8px; } .dm-next i { width: 26px; height: 16px; }
 }
+
+/* Hero picture: laptop + phone joined by a beam, with floating bits. Loops by itself; leans toward the pointer. */
+.lp-stage { height: min(600px, 62vh); container-type: size; }
+.hero-rig { position: absolute; inset: 0; transform: rotateX(var(--rx)) rotateY(var(--ry)); transform-style: preserve-3d; transition: transform .6s var(--ease); }
+.hero-rig::before { content: ''; position: absolute; inset: 6% 4%; border-radius: 50%; background: radial-gradient(closest-side, rgba(200,182,255,.28), rgba(182,221,207,.08) 60%, transparent); filter: blur(30px); animation: heroGlow 8s ease-in-out infinite alternate; }
+@keyframes heroGlow { to { transform: scale(1.08) translate(3%, -2%); opacity: .8; } }
+.hero-lap { --w: min(90cqw, 130cqh); position: absolute; left: 0; top: 12%; z-index: 1; }
+.hero-phn { --h: min(74cqh, 52cqw); position: absolute; right: 0; bottom: 0; z-index: 3; transform: translateZ(40px); animation: heroFloat 7s ease-in-out infinite; }
+@keyframes heroFloat { 50% { margin-bottom: 12px; } }
+.hero-lap .dm-roombar, .hero-phn .dm-roombar { font-size: 11px; }
+.dm-scene.loop .sun { animation: heroSun 10s ease-in-out infinite alternate; }
+@keyframes heroSun { from { transform: translate(-50%, -62%); } to { transform: translate(-50%, -30%); } }
+.hero-prog { animation: heroProg 16s linear infinite; }
+@keyframes heroProg { from { width: 30%; } to { width: 70%; } }
+.hero-faces { right: 4%; bottom: 8%; }
+.hero-faces .dm-tile.r { width: 84px; height: 96px; } .hero-faces .dm-tile.a { width: 58px; height: 68px; }
+.hero-chat { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; padding: 8px 10px 14px; }
+.hero-chat .dm-msg { font-size: 11px; padding: 7px 10px; animation: heroMsg 9s var(--ease) infinite; }
+.hero-chat .dm-msg:nth-child(2) { animation-delay: .6s; } .hero-chat .hero-late { animation-delay: 1.2s; }
+@keyframes heroMsg { 0%, 4% { opacity: 0; transform: translateY(10px) scale(.95); } 10%, 88% { opacity: 1; transform: none; } 96%, 100% { opacity: 0; } }
+.hero-beam { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; overflow: visible; }
+.hero-beam path { fill: none; stroke: rgba(200,182,255,.18); stroke-width: 2; stroke-dasharray: 4 8; }
+.hero-beam path.run { stroke: url(#beam); stroke-width: 3; stroke-dasharray: 60 400; stroke-linecap: round; animation: heroBeam 2.6s linear infinite; filter: drop-shadow(0 0 6px rgba(200,182,255,.8)); }
+@keyframes heroBeam { from { stroke-dashoffset: 460; } to { stroke-dashoffset: 0; } }
+.hero-chip { position: absolute; z-index: 4; display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; background: rgba(24,28,44,.6); border: 1px solid rgba(255,255,255,.14); backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%); box-shadow: 0 20px 50px -18px rgba(0,0,0,.85); transform: translate3d(var(--px), var(--py), 60px); transition: transform .6s var(--ease); }
+.hero-chip.sync { left: 46%; top: 2%; color: var(--mint); animation: heroBob 6s ease-in-out infinite; }
+.hero-chip.sync .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mint); animation: lpPulse 1.8s ease-out infinite; box-shadow: 0 0 0 0 rgba(182,221,207,.6); }
+.hero-chip.who { left: 4%; bottom: 4%; font-weight: 500; color: var(--muted); padding: 6px 14px 6px 6px; animation: heroBob 7s ease-in-out -3s infinite; }
+.hero-chip.who .dm-face + .dm-face { margin-left: -12px; }
+@keyframes heroBob { 50% { margin-top: -8px; } }
+.hero-hearts { position: absolute; left: 80%; top: 52%; z-index: 4; pointer-events: none; }
+.hero-hearts span { position: absolute; font-size: 18px; opacity: 0; animation: heroHeart 5s ease-out infinite; animation-delay: calc(var(--i) * 1s); left: calc(var(--i) * 9px - 18px); }
+@keyframes heroHeart { 0% { opacity: 0; transform: translateY(0) scale(.6); } 15% { opacity: 1; } 100% { opacity: 0; transform: translateY(-140px) translateX(calc(var(--i) * 6px - 12px)) scale(1.1); } }
+@media (max-width: 960px) { .lp-stage { height: min(440px, 56vh); width: 100%; margin: 24px 0 10px; } .hero-chip { font-size: 11px; } .hero-faces .dm-tile.r { width: 60px; height: 70px; } .hero-faces .dm-tile.a { width: 42px; height: 50px; } }
+@media (prefers-reduced-motion: reduce) { .hero-rig *, .hero-rig::before { animation: none !important; } .hero-chat .dm-msg { opacity: 1; } }
+/* Privacy details */
+.lp-sec-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.lp-sec-item { padding: 22px; }
+.lp-sec-item h3 { font-size: 16px; margin-top: 14px; }
+.lp-sec-item p { font-size: 14px; }
+.lp-sec-note { margin-top: 18px !important; font-size: 14px; color: var(--quiet); text-align: center; }
+.lp-sec-note a { color: var(--lav); }
+@media (max-width: 1100px) { .lp-sec-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .lp-sec-grid { grid-template-columns: 1fr; } }

@@ -4,11 +4,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Wordmark } from '../components/Brand';
-import { Icon } from '../components/Icon';
+import { Icon, IconName } from '../components/Icon';
 import { Sheet } from '../components/ui';
 import { ANDROID_LIVE, ANDROID_URL, IOS_URL } from '../components/GetApp';
 import { backendUrl } from '../lib/account';
-import { CallDemo, ChatDemo, GamesDemo, GoalsDemo, PipDemo, StreamDemo, SyncDemo } from './LandingDemos';
+import { HeroScene, CallDemo, ChatDemo, GamesDemo, GoalsDemo, PipDemo, StreamDemo, SyncDemo } from './LandingDemos';
 import './landing.css';
 
 const onPhone = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
@@ -87,14 +87,7 @@ export default function Landing() {
       </div>
 
       <div className="lp-stage" ref={hero} aria-hidden="true" data-reveal style={{ ['--d' as string]: '200ms' }}>
-        <div className="lp-screen">
-          <div className="lp-scene"><span className="sun" /><span className="hill a" /><span className="hill b" /></div>
-          <div className="lp-bar"><span className="lp-play"><Icon name="pause" size={14} /></span><span className="grow"><b>Late night drive</b><small>Playing for both of you</small></span><span className="lp-time">1:12:40</span></div>
-          <div className="lp-progress"><i /></div>
-        </div>
-        <div className="lp-float faces"><span className="face a">A</span><span className="face r">R</span><span className="lp-live"><span />In a call · 24:10</span></div>
-        <div className="lp-float sync"><Icon name="check" size={14} stroke={2.6} />In sync</div>
-        <div className="lp-float bubble"><b>Riya</b>this part!! 😭</div>
+        <HeroScene />
       </div>
     </section>
 
@@ -121,9 +114,24 @@ export default function Landing() {
         <span className="lp-ico lav big"><Icon name="shield" size={26} /></span>
         <div>
           <h2>Private by design.</h2>
-          <p className="lp-lead">No ads. No selling your data. No strangers. Rooms are invite-only, chats are end-to-end encrypted, and calls go straight between your devices whenever possible. Never recorded.</p>
+          <p className="lp-lead">Our Space is built for two people, not for an audience. Here’s exactly how your space stays yours, in plain words.</p>
         </div>
       </div>
+      <div className="lp-sec-grid">
+        {([
+          ['lock', 'lav', 'End-to-end encrypted chat', 'Messages, photos and files are locked on your device before they leave it. Only the people in your room have the keys. We can’t read them, and neither can anyone who gets into our servers.'],
+          ['phone', 'mint', 'Your history stays with you', 'Chats are saved on your own phone or computer, and the app can back them up to a folder you choose. Our server only passes encrypted messages along and deletes them once they’re delivered (within 7 days at most).'],
+          ['video', 'rose', 'Calls straight between you', 'Voice and video go directly from your device to theirs. If a network blocks that, they pass through an encrypted relay that can’t see or hear them. Calls are never recorded.'],
+          ['users', 'gold', 'Invite-only rooms', 'No public profiles, no search, no strangers. Anyone new has to ask to join and you approve them. You can remove, block or report anyone at any time.'],
+          ['shield', 'lav', 'No passwords to leak', 'You sign in with Google or Apple, so we never store a password. Every connection to Our Space is encrypted (HTTPS).'],
+          ['heart', 'mint', 'No ads. No tracking. No selling.', 'We don’t show ads, don’t follow you around the web and never sell or share your data for marketing. Our Space will be funded by optional extras, never by advertisers.'],
+          ['film', 'rose', 'A browser extension that minds its business', 'It only works on Netflix, Prime Video and Our Space, and only reads play, pause and position to keep you in sync. It never sees your passwords, payments or other sites.'],
+          ['trash', 'gold', 'Leave whenever you like', 'Delete your account from the app or our website and your account data is erased. Your chats were never on our servers to begin with.'],
+        ] as [IconName, string, string, string][]).map(([icon, tone, t, b], i) => <article key={t} className="glass-card lp-sec-item" data-reveal style={{ ['--d' as string]: `${(i % 4) * 70}ms` }}>
+          <span className={`lp-ico ${tone}`}><Icon name={icon} size={20} /></span><h3>{t}</h3><p>{b}</p>
+        </article>)}
+      </div>
+      <p className="lp-sec-note" data-reveal>Read the full <a href={`${backendUrl}/privacy`} target="_blank" rel="noreferrer">privacy policy</a>. Questions? <a href={`${backendUrl}/support`} target="_blank" rel="noreferrer">Ask us</a>.</p>
     </section>
 
     {/* FAQ */}
@@ -133,6 +141,7 @@ export default function Landing() {
         ['Is it free?', 'Yes. Watching, calls, chat and games are free. Extras for people who want more may come later, and we’ll always say clearly what’s free.'],
         ['Do we both need Netflix or Prime?', 'Yes. Each person watches on their own account; Our Space only keeps your play, pause and position in sync.'],
         ['Does it work on phones?', 'In your phone’s browser today. The Android app is coming soon, with iPhone after that. Netflix and Prime sync needs a computer for now.'],
+        ['Where are our chats stored?', 'On your own devices. Messages are end-to-end encrypted and only pass through our server, unreadable, until they reach the other person, then they’re deleted from it. Your history lives on your phone or computer, and the phone app can back it up to a folder you choose.'],
         ['Who can see our room?', 'Only the people you approve. Anyone new has to ask to join, and you can remove or block people anytime.'],
         ['Do I need to install anything?', 'Not for YouTube, calls, chat or games. Only Netflix and Prime need the small browser extension, added once.'],
       ].map(([q, a], i) => <details key={q} className="glass-card" data-reveal style={{ ['--d' as string]: `${i * 60}ms` }}><summary>{q}<Icon name="plus" size={18} /></summary><p>{a}</p></details>)}
