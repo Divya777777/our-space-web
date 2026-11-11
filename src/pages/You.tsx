@@ -4,6 +4,7 @@ import { backendUrl } from '../lib/account';
 import { unblockUser, useBlocked } from '../lib/safety';
 import { Avatar, Button, Notice, Sheet, useConfirm, useToast } from '../components/ui';
 import { Icon, IconName } from '../components/Icon';
+import { FeedbackSheet } from '../components/Feedback';
 import { LinkSheet } from '../components/LinkSheet';
 import { enableNotifications } from '../lib/webNotify';
 
@@ -18,6 +19,7 @@ export default function You() {
   const [perm, setPerm] = useState(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
   const [del, setDel] = useState(false); const [typed, setTyped] = useState('');
   const [linking, setLinking] = useState(false);
+  const [feedback, setFeedback] = useState(false);
   useEffect(() => setName(space.user.name), [space.user.name]);
   const row = (icon: IconName, title: string, sub: string, action?: React.ReactNode, href?: string) => {
     const body = <><span className="center" style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(255,255,255,.06)', flex: 'none' }}><Icon name={icon} /></span><span className="grow"><span className="h3" style={{ display: 'block' }}>{title}</span><span className="small muted">{sub}</span></span>{action}</>;
@@ -51,6 +53,7 @@ export default function You() {
     <div className="section-head"><h2 className="h2">Safety and help</h2></div>
     <div className="glass panel list" style={{ padding: 8 }}>
       {blocked.length > 0 && blocked.map(b => row('shield', b.name, 'Blocked', <Button size="sm" variant="secondary" onClick={() => void unblockUser(space.api, b.id).then(() => toast('Unblocked.'))}>Unblock</Button>))}
+      {row('bulb', 'Tell us what should be better', 'An idea, a problem, or something you love', <Button size="sm" variant="secondary" onClick={() => setFeedback(true)}>Write a note</Button>)}
       {row('shield', 'Privacy policy', 'What we keep and why', undefined, `${backendUrl}/privacy`)}
       {row('book', 'Terms', 'The rules for using Our Space', undefined, `${backendUrl}/terms`)}
       {row('chat', 'Help and support', 'Questions, problems or ideas', undefined, `${backendUrl}/support`)}
@@ -62,6 +65,7 @@ export default function You() {
     </div>
 
     {linking && <LinkSheet onClose={() => setLinking(false)} />}
+    {feedback && <FeedbackSheet onClose={() => setFeedback(false)} />}
     {edit && <Sheet title="Your name" sub="The name your people see in rooms, chat and calls." onClose={() => setEdit(false)} footer={<Button block onClick={async () => { setError(''); try { await space.setDisplayName(name); setEdit(false); toast('Name saved.'); } catch (e) { setError((e as Error).message); } }}>Save name</Button>}>
       <input aria-label="Your name" className="input" maxLength={30} value={name} onChange={e => setName(e.target.value)} />{error && <Notice tone="error">{error}</Notice>}
     </Sheet>}

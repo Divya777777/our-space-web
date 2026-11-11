@@ -18,7 +18,7 @@ type Space = {
   signOut: () => Promise<void>; deleteAccount: () => Promise<void>;
   setDisplayName: (name: string) => Promise<void>;
   refresh: () => Promise<void>;
-  createRoom: (name: string) => Promise<Room>; renameRoom: (code: string, name: string) => Promise<void>;
+  createRoom: (name: string) => Promise<Room>; renameRoom: (code: string, name: string) => Promise<void>; setRoomTheme: (code: string, theme: string) => Promise<void>;
   deleteRoom: (code: string) => Promise<'deleted' | 'left'>;
   join: (code: string) => Promise<boolean>;
   joinStatus: (code: string, cursor?: number, signal?: AbortSignal) => Promise<{ status: 'approved' | 'waiting' | 'declined'; cursor: number }>;
@@ -171,6 +171,12 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
       if (!name.trim()) throw new Error('Give your room a name.');
       mergeRoom(await request<Room>(`/rooms/${code}`, { name: name.trim() }, 'PATCH'));
       void request<Playlist[]>('/playlists').then(setPlaylists).catch(() => {});
+    },
+    async setRoomTheme(code, theme) {
+      const before = rooms.find(r => r.code === code);
+      if (before) setRooms(list => list.map(r => r.code === code ? { ...r, theme } : r)); // show it at once
+      try { mergeRoom(await request<Room>(`/rooms/${code}/theme`, { theme })); }
+      catch (e) { if (before) setRooms(list => list.map(r => r.code === code ? { ...r, theme: before.theme } : r)); throw e; }
     },
     async deleteRoom(code) {
       const room = rooms.find(r => r.code === code);

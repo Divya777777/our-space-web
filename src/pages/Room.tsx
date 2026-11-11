@@ -22,6 +22,7 @@ import { useCall } from '../components/Call';
 import { Avatar, Button, IconButton, Notice, Segments, Sheet, Skeleton, copyText, firstName, useConfirm, useToast } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { Star } from '../components/Brand';
+import { RoomThemeLayer, Scene, THEMES, ThemePicker, themeId } from '../components/RoomTheme';
 import { InstallSheet, PartyCard, PartyInvite, StreamTiles } from '../components/StreamParty';
 import { SERVICES, Service, availability, downloadTestVersion, extension, needsUpdate, openStore, useWatchParty } from '../lib/watchParty';
 
@@ -43,6 +44,7 @@ export default function RoomPage() {
   const [title, setTitle] = useState('');
   const [save, setSave] = useState<Track | null>(null);
   const [menu, setMenu] = useState(false);
+  const [themes, setThemes] = useState(false);
   const [rename, setRename] = useState<string | null>(null);
   const [playerError, setPlayerError] = useState('');
   const position = useRef(0);
@@ -149,6 +151,7 @@ export default function RoomPage() {
     // Two soundtracks at once would be a mess: pause the room's YouTube video for everyone.
     if (pb?.playing) void space.play(code, pb.videoId, false, position.current || positionNow(pb)).catch(() => {});
     watch.start(service, host);
+    void space.api('/usage', { name: `party_${service}` }, 'POST').catch(() => {});
   };
   const pickService = (service: Service, host = true) => {
     // Not offered where you are: say so instead of opening a page that can't play.
@@ -202,6 +205,7 @@ export default function RoomPage() {
   const pipLive = !!pip.slots && liveIn === pip.slots;
   const pipPlayer = floating && gate.playback ? <YouTubePlayer key={`pip-${code}`} playback={gate.playback} events={{ onStarted: () => setLiveIn(pip.slots) }} follow={mainTime} /> : null;
 
+  const theme = themeId(room.theme);
   const top = <div className="room-top">
     <IconButton icon="back" label="Back home" onClick={() => nav('/')} />
     <div className="grow" style={{ minWidth: 0 }}>
@@ -225,6 +229,7 @@ export default function RoomPage() {
   </div>;
 
   return <div className="room">
+    <RoomThemeLayer theme={theme} />
     {pb && <div className="ambient" aria-hidden="true"><img key={pb.videoId} src={`https://i.ytimg.com/vi/${pb.videoId}/mqdefault.jpg`} alt="" /></div>}
     {top}
     <section className="stage" aria-label="Watch together">
@@ -286,6 +291,11 @@ export default function RoomPage() {
     {save && <SaveSheet track={save} roomCode={code} onClose={() => setSave(null)} />}
     {menu && <Sheet title={room.name} sub={admin ? 'You’re the admin of this room.' : undefined} onClose={() => setMenu(false)}>
       <div className="col gap-8">
+        <button className="theme-row" onClick={() => { setMenu(false); setThemes(true); }}>
+          <Scene id={theme} />
+          <span className="grow"><b>Room theme</b><small>{THEMES.find(t => t.id === theme)?.name} · tap to change</small></span>
+          <Icon name="fwd" size={18} />
+        </button>
         {admin && <Button variant="secondary" icon="edit" onClick={() => { setMenu(false); setRename(room.name); }}>Rename room</Button>}
         <Button variant="secondary" icon="copy" onClick={async () => { if (await copyText(room.code)) toast('Room code copied.', { icon: 'copy' }); }}>Copy room code</Button>
         <Button variant="quiet-danger" icon={admin ? 'trash' : 'logout'} onClick={async () => {
@@ -294,6 +304,9 @@ export default function RoomPage() {
           try { const r = await space.deleteRoom(code); toast(r === 'deleted' ? 'Room deleted.' : 'You left the room.'); nav('/'); } catch (e) { fail(e); }
         }}>{admin ? 'Delete room' : 'Leave room'}</Button>
       </div>
+    </Sheet>}
+    {themes && <Sheet title="Room theme" sub="Sets the mood for everyone in this room." onClose={() => setThemes(false)}>
+      <ThemePicker value={theme} onPick={async id => { if (id === theme) return; try { await space.setRoomTheme(code, id); } catch (e) { fail(e); } }} />
     </Sheet>}
     {rename !== null && <Sheet title="Rename room" onClose={() => setRename(null)} footer={<Button block disabled={!rename.trim()} onClick={async () => { try { await space.renameRoom(code, rename); setRename(null); toast('Renamed.'); } catch (e) { fail(e); } }}>Save</Button>}>
       <input aria-label="Room name" className="input" maxLength={50} value={rename} onChange={e => setRename(e.target.value)} />
@@ -307,7 +320,7 @@ function Volume({ value, onChange }: { value: number; onChange: (v: number) => v
   useEffect(() => { if (!dragging.current) setV(value); }, [value]);
   return <label className="row gap-8" title="Volume for everyone" style={{ color: 'var(--muted)' }}>
     <Icon name={v === 0 ? 'mute' : v < 50 ? 'volumeLow' : 'volume'} size={18} />
-    <input type="range" min={0} max={100} value={v} aria-label="Volume for everyone" style={{ width: 90, accentColor: '#C8B6FF' }}
+    <input type="range" min={0} max={100} value={v} aria-label="Volume for everyone" style={{ width: 90, accentColor: 'var(--lav)' }}
       onPointerDown={() => { dragging.current = true; }} onChange={e => setV(Number(e.target.value))}
       onPointerUp={() => { dragging.current = false; onChange(v); }} onKeyUp={() => onChange(v)} />
   </label>;

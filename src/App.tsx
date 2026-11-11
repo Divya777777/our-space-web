@@ -8,6 +8,7 @@ import { Starfield } from './components/Space';
 import { CallProvider } from './components/Call';
 import { PipProvider } from './lib/pip';
 import { OfflineBar } from './components/OfflineBar';
+import { FeedbackSheet } from './components/Feedback';
 import Welcome from './pages/Welcome';
 import Landing from './pages/Landing';
 import Home from './pages/Home';
@@ -64,13 +65,16 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
 function useRequests() { const space = useSpace(); return space.rooms.some(r => r.hostId === space.user.id && r.requests.length > 0); }
 function Rail() {
   const requests = useRequests();
+  const [feedback, setFeedback] = useState(false);
   return <nav className="rail" aria-label="Main">
     <div className="rail-inner glass">
       <NavLink to="/" className="rail-brand" aria-label="Our Space home"><Star size={30} /></NavLink>
       {NAV.map(n => <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => isActive ? 'active' : ''}>
         <Icon name={n.icon} size={22} /><span className="tip">{n.label}</span>{n.to === '/rooms' && requests && <span className="badge" />}
       </NavLink>)}
+      <button className="rail-item rail-feedback" onClick={() => setFeedback(true)} aria-label="Tell us what should be better"><Icon name="bulb" size={20} /><span className="tip">Tell us</span></button>
     </div>
+    {feedback && <FeedbackSheet onClose={() => setFeedback(false)} />}
   </nav>;
 }
 function TabBar() {
