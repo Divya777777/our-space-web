@@ -401,8 +401,12 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const [selfBig, setSelfBig] = useState(false);
   useEffect(() => { if (!call) setSelfBig(false); }, [call]);
   const [pinned, setPinned] = useState<string | null>(null);
+  // Group calls: Auto picks a grid for up to 6 others and speaker view above that (or when someone is pinned).
+  const [layout, setLayout] = useState<Layout>(() => { try { const v = localStorage.getItem('ourspace.callLayout'); return v === 'grid' || v === 'speaker' ? v : 'auto'; } catch { return 'auto'; } });
+  const pickLayout = (v: Layout) => { setLayout(v); try { localStorage.setItem('ourspace.callLayout', v); } catch { /* fine */ } };
+  useEffect(() => { if (!call) setPinned(null); }, [call]);
   const speaker = useActiveSpeaker(others);
-  useEffect(() => { if (pinned && !others.some(p => p.id === pinned)) setPinned(null); }, [pinned, others]);
+  useEffect(() => { if (pinned && pinned !== SELF && !others.some(p => p.id === pinned)) setPinned(null); }, [pinned, others]);
   const [fsHost, setFsHost] = useState<Element | null>(null);
   useEffect(() => {
     const on = () => {
@@ -471,20 +475,23 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         {!pip.supported && canFloat && <IconButton icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
         <div className="grow"><p className="h3">{group ? call.title : others[0]?.name || call.title}</p><p className="small muted">{!group && others[0]?.muted && connected ? 'Muted · ' : ''}{status}</p></div>
         {error && <span className="small rose">{error}</span>}
+        {connected && others.length >= 2 && <div className="layout-seg" role="group" aria-label="Layout">
+          {(['auto', 'grid', 'speaker'] as Layout[]).map(v => <button key={v} className={layout === v ? 'on' : ''} aria-pressed={layout === v} onClick={() => pickLayout(v)}>{v === 'auto' ? 'Auto' : v === 'grid' ? 'Grid' : 'Speaker'}</button>)}
+        </div>}
       </div>
       {(() => {
         const swap = selfBig && !!local && !cameraOff && connected && others.length === 1;
         const me = <><VideoEl stream={local!} muted /><span className="name">You{muted && <Icon name="micOff" size={13} />}</span></>;
         return <>
           {swap ? <div className="call-stage" style={{ gridTemplateColumns: 'minmax(0, min(1100px, 100%))' }}><div className="tile self-big">{me}</div></div>
-            : <Stage others={others} connected={connected} video={call.video} title={call.title} status={status} ringing={call.members} />}
+            : <Stage others={others} connected={connected} video={call.video} title={call.title} status={status} ringing={call.members} layout={layout} pinned={pinned === SELF ? null : pinned} onPin={setPinned} speaker={speaker} />}
           {swap ? <button className="tile self-tile swap" onClick={() => setSelfBig(false)} aria-label={`Make ${firstName(others[0].name)} big`} title="Make this the big picture"><PeerTile p={others[0]} video={call.video} /></button>
             : local && !cameraOff && <button className="tile self-tile swap" onClick={() => { if (connected && others.length === 1) setSelfBig(true); }} aria-label="Make your picture big" title={others.length === 1 ? 'Make this the big picture' : undefined}>{me}</button>}
         </>;
       })()}
       <div className="call-controls"><div className="glass">{controls}</div></div>
     </div>}
-    {call && phase !== 'incoming' && !expanded && !inPip && (call.video || docked !== call.code) && <MiniCall others={others} self={local && !cameraOff ? local : null} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
+    {call && phase !== 'incoming' && !expanded && !inPip && (call.video || docked !== call.code) && <MiniCall others={others} spotId={pinned && pinned !== SELF ? pinned : speaker} onPin={setPinned} self={local && !cameraOff ? local : null} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
       {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
       {!pip.supported && canFloat && <IconButton size="sm" icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
       <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={() => finish()} />
@@ -504,26 +511,47 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   </CallContext.Provider>;
 }
 
-function Stage({ others, connected, video, title, status, ringing }: { others: PeerView[]; connected: boolean; video: boolean; title: string; status: string; ringing: CallPeer[] }) {
+type Layout = 'auto' | 'grid' | 'speaker';
+/** Pin value meaning "my own picture" (picture-in-picture lets you make yourself the big one). */
+const SELF = '__self';
+export function Stage({ others, connected, video, title, status, ringing, layout = 'auto', pinned = null, onPin, speaker = null }: { others: PeerView[]; connected: boolean; video: boolean; title: string; status: string; ringing: CallPeer[]; layout?: Layout; pinned?: string | null; onPin?: (id: string | null) => void; speaker?: string | null }) {
   if (!connected || !others.length) return <div className="call-stage"><div className="col gap-16" style={{ alignItems: 'center' }}>
     <div className="stack ring">{(others.length ? others : ringing).slice(0, 4).map(p => <Avatar key={p.id} name={p.name} size={104} />)}</div>
     <p className="title">{title}</p><p className="muted">{status}</p></div></div>;
-  const cols = others.length === 1 ? 1 : others.length <= 4 ? 2 : 3;
-  return <div className="call-stage" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, ${others.length === 1 ? 'min(1100px, 100%)' : '520px'}))` }}>
-    {others.map(p => <PeerTile key={p.id} p={p} video={video} />)}
+  const n = others.length;
+  // Two people: exactly as before. Groups: grid up to 6 others, speaker view above that or when someone is pinned.
+  const pin = n >= 2 && onPin ? (id: string) => onPin(pinned === id ? null : id) : undefined;
+  const speakerView = n >= 2 && (layout === 'speaker' || (layout === 'auto' && (n > 6 || !!pinned)));
+  if (speakerView) {
+    const spot = others.find(p => p.id === pinned) || others.find(p => p.id === speaker) || others[0];
+    const rest = others.filter(p => p !== spot);
+    return <div className="call-stage speaker-view">
+      <div className="spot"><PeerTile p={spot} video={video} pinned={pinned === spot.id} onPin={pin ? () => pin(spot.id) : undefined} /></div>
+      <div className="call-strip" aria-label="Everyone else · click to make big">
+        {rest.map(p => <button key={p.id} className="strip-btn" onClick={() => onPin?.(p.id)} aria-label={`Make ${firstName(p.name)} big`} title="Make this the big picture"><PeerTile p={p} video={video} /></button>)}
+      </div>
+    </div>;
+  }
+  const cols = n === 1 ? 1 : n <= 4 ? 2 : 3;
+  const ordered = pinned ? [...others.filter(p => p.id === pinned), ...others.filter(p => p.id !== pinned)] : others;
+  return <div className="call-stage" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, ${n === 1 ? 'min(1100px, 100%)' : '520px'}))` }}>
+    {ordered.map(p => <PeerTile key={p.id} p={p} video={video} pinned={pinned === p.id} onPin={pin ? () => pin(p.id) : undefined} />)}
   </div>;
 }
-function PeerTile({ p, video }: { p: PeerView; video: boolean }) {
+function PeerTile({ p, video, pinned, onPin }: { p: PeerView; video: boolean; pinned?: boolean; onPin?: () => void }) {
   const speaking = useSpeaking(p.stream, !p.muted);
   const showVideo = video && p.stream && !p.cameraOff && p.stream.getVideoTracks().length > 0;
   return <div className={`tile ${speaking ? 'speaking' : ''}`}>
     {showVideo ? <VideoEl stream={p.stream!} muted remote /> : <div className="col gap-8" style={{ alignItems: 'center' }}><Avatar name={p.name} size={92} /><span className="small muted">{p.state === 'connected' ? (video ? 'Camera off' : 'On the call') : 'Connecting…'}</span></div>}
     <span className="name">{p.muted && <Icon name="micOff" size={13} />}{firstName(p.name)}</span>
+    {onPin && <button className={`float-pin tile-pin ${pinned ? 'on' : ''}`} onClick={onPin} aria-label={pinned ? `Unpin ${firstName(p.name)}` : `Pin ${firstName(p.name)} as the big picture`} title={pinned ? 'Unpin' : 'Pin as the big picture'}><Icon name="star" size={14} fill={pinned} /></button>}
   </div>;
 }
 /** Away from the call's room: a small pill you can drag anywhere (it remembers where you put it). */
-function MiniCall({ others, self, status, title, onOpen, controls }: { others: PeerView[]; self: MediaStream | null; status: string; title: string; onOpen: () => void; controls: React.ReactNode }) {
-  const first = others.find(p => p.stream && !p.cameraOff && p.stream.getVideoTracks().length);
+function MiniCall({ others, spotId, onPin, self, status, title, onOpen, controls }: { others: PeerView[]; spotId?: string | null; onPin?: (id: string | null) => void; self: MediaStream | null; status: string; title: string; onOpen: () => void; controls: React.ReactNode }) {
+  const hasVideo = (p: PeerView) => !!p.stream && !p.cameraOff && p.stream.getVideoTracks().length > 0;
+  // The big picture follows whoever is talking (or the face you tapped); with 2 people it's simply the other person.
+  const first = others.find(p => p.id === spotId && hasVideo(p)) || others.find(hasVideo);
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(() => { try { return JSON.parse(localStorage.getItem('ourspace.callPill') || 'null'); } catch { return null; } });
   // Drag from anywhere on the pill (its buttons too): it only counts as a drag after moving 6 px, so a plain tap
@@ -554,11 +582,19 @@ function MiniCall({ others, self, status, title, onOpen, controls }: { others: P
     style={{ ...(first ? { flexDirection: 'column', alignItems: 'stretch', borderRadius: 24, padding: 8, width: 240 } : {}), ...(pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : {}) }}>
     <span className="pill-grip" aria-hidden="true" title="Drag to move" />
     {first && <button className="tile" style={{ aspectRatio: '16 / 10', borderRadius: 18 }} onClick={onOpen} aria-label="Open the call"><VideoEl stream={first.stream!} muted remote />{self && <span className="pill-self"><VideoEl stream={self} muted /></span>}</button>}
+    {others.length >= 2 && <div className="pill-faces" aria-label="Everyone on the call · tap a face to make it big">
+      {others.slice(0, 6).map(p => <PillFace key={p.id} p={p} big={first?.id === p.id} onPick={() => onPin?.(p.id)} />)}
+      {others.length > 6 && <span className="pill-more">+{others.length - 6}</span>}
+    </div>}
     <div className="row gap-8" style={first ? { padding: '4px 4px 0 8px' } : undefined}>
       <button className="grow row gap-8" onClick={onOpen} style={{ textAlign: 'left', minWidth: 0 }}><span className="live-dot" /><span className="col gap-4" style={{ minWidth: 0 }}><span className="small ellipsis" style={{ fontWeight: 600 }}>{title}</span><span className="tiny muted">{status}</span></span></button>
       {controls}
     </div>
   </div>;
+}
+function PillFace({ p, big, onPick }: { p: PeerView; big: boolean; onPick: () => void }) {
+  const speaking = useSpeaking(p.stream, !p.muted);
+  return <button className={`pill-face ${speaking ? 'speaking' : ''} ${big ? 'big' : ''}`} onClick={onPick} aria-label={`Make ${firstName(p.name)} big`} title={firstName(p.name)}><Avatar name={p.name} size={30} /></button>;
 }
 function VideoEl({ stream, muted, remote }: { stream: MediaStream; muted?: boolean; remote?: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -571,26 +607,33 @@ export function CallFloat({ others, video, local, cameraOff, muted, status, big,
   others: PeerView[]; video: boolean; local: MediaStream | null; cameraOff: boolean; muted: boolean; status: string; big: boolean; onBig: (v: boolean) => void;
   pinned: string | null; onPin: (id: string | null) => void; speaker: string | null; connected: boolean; busy: boolean; onMute: () => void; onCamera: () => void; onEnd: () => void;
 }) {
-  const spot = others.find(p => p.id === pinned) || others.find(p => p.id === speaker) || others[0];
-  const selfTile = local && !cameraOff ? <div className="float-tile self"><VideoEl stream={local} muted /><span className="name">You{muted && <Icon name="micOff" size={11} />}</span></div> : null;
-  return <div className={`call-float ${big ? 'big' : 'small'}`}>
-    <div className="float-stage" style={big ? { gridTemplateColumns: `repeat(${Math.min(3, others.length + (selfTile ? 1 : 0)) || 1}, minmax(0, 1fr))` } : undefined}>
-      {big
-        ? <>{others.map(p => <FloatTile key={p.id} p={p} video={video} pinned={pinned === p.id} speaking={speaker === p.id} onPin={others.length > 1 ? () => onPin(pinned === p.id ? null : p.id) : undefined} />)}{selfTile}</>
-        : spot ? <FloatTile p={spot} video={video} pinned={pinned === spot.id} speaking={speaker === spot.id} /> : null}
+  const hasSelf = !!local && !cameraOff;
+  const selfBig = pinned === SELF && hasSelf;
+  const spot = selfBig ? null : others.find(p => p.id === pinned) || others.find(p => p.id === speaker) || others[0];
+  const selfTile = (onClick?: () => void) => hasSelf ? <div className={`float-tile self ${onClick ? 'pick' : ''}`} onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined} aria-label={onClick ? 'Make your picture big' : undefined} onKeyDown={onClick ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}><VideoEl stream={local!} muted /><span className="name">You{muted && <Icon name="micOff" size={11} />}</span></div> : null;
+  // "Everyone": one big picture you choose (tap any small one to swap it in, yourself included) and the rest small.
+  const smalls = big ? [...others.filter(p => p !== spot)] : [];
+  return <div className={`call-float ${big ? 'big focus' : 'small'}`}>
+    <div className="float-stage">
+      {selfBig ? selfTile() : spot ? <FloatTile p={spot} video={video} pinned={pinned === spot.id} speaking={speaker === spot.id} /> : null}
     </div>
+    {big && (smalls.length > 0 || hasSelf) && <div className="float-strip" aria-label="Tap a picture to make it big">
+      {smalls.map(p => <FloatTile key={p.id} p={p} video={video} pinned={false} speaking={speaker === p.id} onPick={() => onPin(p.id)} />)}
+      {!selfBig && selfTile(() => onPin(SELF))}
+      {selfBig && others.map(p => <FloatTile key={p.id} p={p} video={video} pinned={false} speaking={speaker === p.id} onPick={() => onPin(p.id)} />)}
+    </div>}
     <div className="float-bar">
       <span className="grow tiny ellipsis"><span className="live-dot" /> {status}</span>
       {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={onMute} />}
       {connected && video && <IconButton size="sm" icon={cameraOff ? 'videoOff' : 'video'} variant={cameraOff ? 'on' : undefined} label={cameraOff ? 'Turn camera on' : 'Turn camera off'} disabled={busy} onClick={onCamera} />}
-      <IconButton size="sm" icon={big ? 'down' : 'users'} label={big ? 'Show only the person speaking' : 'Show everyone, you too'} onClick={() => onBig(!big)} />
+      <IconButton size="sm" icon={big ? 'down' : 'users'} label={big ? 'Show only the big picture' : 'Show everyone and choose who is big'} onClick={() => onBig(!big)} />
       <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={onEnd} />
     </div>
   </div>;
 }
-function FloatTile({ p, video, pinned, speaking, onPin }: { p: PeerView; video: boolean; pinned: boolean; speaking: boolean; onPin?: () => void }) {
+function FloatTile({ p, video, pinned, speaking, onPin, onPick }: { p: PeerView; video: boolean; pinned: boolean; speaking: boolean; onPin?: () => void; onPick?: () => void }) {
   const showVideo = video && p.stream && !p.cameraOff && p.stream.getVideoTracks().length > 0;
-  return <div className={`float-tile ${speaking ? 'speaking' : ''}`}>
+  return <div className={`float-tile ${speaking ? 'speaking' : ''} ${onPick ? 'pick' : ''}`} onClick={onPick} role={onPick ? 'button' : undefined} tabIndex={onPick ? 0 : undefined} aria-label={onPick ? `Make ${firstName(p.name)} big` : undefined} onKeyDown={onPick ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(); } } : undefined}>
     {/* A soft, blurred copy fills the sides when a phone's tall picture sits in a wide window (nothing is cropped). */}
     {showVideo && <div className="float-fill" aria-hidden="true"><VideoEl stream={p.stream!} muted /></div>}
     {showVideo ? <VideoEl stream={p.stream!} muted /> : <Avatar name={p.name} size={52} />}

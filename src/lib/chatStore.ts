@@ -3,7 +3,7 @@ import { strFromU8, strToU8 } from 'fflate';
 import { localKey, openLocal, sealLocal } from './e2e';
 
 export type ChatFile = { key: string; name: string; mime: string; size: number; w?: number; h?: number };
-export type ChatItem = { id: string; from: string; name: string; at: number; kind: 'text' | 'image' | 'file'; text?: string; file?: ChatFile; pending?: boolean; failed?: boolean };
+export type ChatItem = { id: string; from: string; name: string; at: number; kind: 'text' | 'image' | 'file'; /** Private message: who it was sent to. */ to?: string[]; text?: string; file?: ChatFile; pending?: boolean; failed?: boolean };
 export type ChatState = { cursor: number; items: ChatItem[]; parts?: Record<string, { keys: string[]; at: number }> };
 
 let dbPromise: Promise<IDBDatabase> | null = null;

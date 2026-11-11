@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSpace } from '../lib/space';
 import { GamesApi, Hub, QuizAsk, QuizQuestion, QuizState, ScribbleView, Stroke, TdView, Turn, liveGames } from '../lib/games';
 import { useCall } from './Call';
-import { Button, Notice, Sheet, ago, firstName, useToast } from './ui';
+import { Avatar, Button, Notice, Sheet, ago, firstName, useToast } from './ui';
 import { Icon, IconName } from './Icon';
 
 const COLORS = ['#141125', '#E0566B', '#3F7FE0', '#2E9E6E', '#E6A23C'];
@@ -61,11 +61,11 @@ export function PlayPanel({ code, onShare }: { code: string; onShare: (text: str
     {hub?.live.scribble && hub.live.scribble.phase !== 'over' && live && banner('#C8B6FF', 'pencil', `${firstName(hub.live.scribble.drawerName)} is playing Scribble`, 'Join in and guess the drawing', 'Join', () => setOpen('live'))}
     {hub?.live.td && live && banner('#F2AAAA', 'cards', 'Truth or Dare is on', hub.live.td.turnName === 'You' ? 'Your turn' : `${firstName(hub.live.td.turnName)}’s turn`, 'Join', () => void td(true))}
     {hub?.turns.map(t => <div key={t.id}>{banner('#E6C994', 'pencil', `${firstName(t.fromName)} drew something for you`, `${ago(t.at)} · 60 seconds to guess once you open it`, 'Guess', () => { setTurnId(t.id); setOpen('turn'); })}</div>)}
-    {hub?.quiz.toCheck?.map(p => <div key={p.id}>{banner('#B6DDCF', 'heart', `${firstName(p.fromName)} answered 10 questions about you`, 'Check which ones they got right', 'Check', () => setOpen('quiz'))}</div>)}
+    {(room?.members.length ?? 2) <= 2 && hub?.quiz.toCheck?.map(p => <div key={p.id}>{banner('#B6DDCF', 'heart', `${firstName(p.fromName)} answered 10 questions about you`, 'Check which ones they got right', 'Check', () => setOpen('quiz'))}</div>)}
     <p className="h3" style={{ marginTop: 4 }}>Play together</p>
     {game('pencil', '#C8B6FF', 'Scribble', live ? 'One draws, the others guess — live.' : 'Draw a word and send it.', live ? 'You’re on a call · 3 rounds · 60 s each' : '60 seconds to guess once it’s opened · +2 each', () => void scribble())}
     {game('cards', '#F2AAAA', 'Truth or Dare', 'Sweet, fun — or spicy if you all agree.', live ? 'You’re on a call · no time limit' : onCall ? 'Opens when someone joins your call' : 'Played live on a call', () => { if (live) void td(); else if (onCall) toast(`Waiting for ${partner === 'them' ? 'someone' : partner} to join the call.`); else toast('Truth or Dare is played on a call.', { action: { label: 'Call now', run: callRoom } }); })}
-    {game('heart', '#B6DDCF', hub?.partner ? `How well do you know ${partner}?` : 'How well do you know me?', 'Answer 10 questions about them. They check, you both see the score.', 'Anytime · about 2 minutes', () => setOpen('quiz'))}
+    {(room?.members.length ?? 2) <= 2 && game('heart', '#B6DDCF', hub?.partner ? `How well do you know ${partner}?` : 'How well do you know me?', 'Answer 10 questions about them. They check, you both see the score.', 'Anytime · about 2 minutes', () => setOpen('quiz'))}
     {hub && <div className="inset row" style={{ padding: 14 }}><span className="gold"><Icon name="trophy" size={22} /></span><div className="grow"><p className="h3">{MONTHS[Number(hub.month.slice(5, 7)) - 1]} scores</p><p className="tiny muted">Scribble and quiz points</p></div>
       <p className="small" style={{ fontWeight: 600 }}>{ranked.slice(0, 4).map((x, i) => <span key={x.id} className={x.id === space.user.id ? 'lav' : 'mint'}>{i ? <span className="muted"> · </span> : null}{firstName(x.id === space.user.id ? space.user.name : x.name)} {x.points}</span>)}</p></div>}
     {open === 'live' && <LiveScribble api={api} onClose={() => { setOpen(null); refresh(); }} />}
@@ -127,6 +127,11 @@ function LiveScribble({ api, onClose }: { api: GamesApi; onClose: () => void }) 
   return <Sheet title="Scribble" sub={`Round ${view.round} of ${view.rounds} · ${drawer ? 'you draw' : `${firstName(view.drawerName)} draws`}`} wide onClose={onClose} footer={endGame}>
     <div className="row between">{drawer || view.word ? <div><p className="tiny muted">{drawer ? 'Your word · only you see it' : 'The word was'}</p><p className="title" style={{ letterSpacing: '.08em' }}>{(view.word || '').toUpperCase()}</p></div> : <div className="letters">{Array.from({ length: view.length }, (_, i) => <span key={i} />)}</div>}
       <Countdown ms={view.msLeft} running={(view.phase === 'drawing' || view.phase === 'guessing') && view.strokes.length > 0} /></div>
+    {(view.players?.length ?? 0) > 2 && <div className="scoreboard" aria-label="Players">
+      {[...view.players!].sort((a, b) => b.pts - a.pts).map(p => <span key={p.id} className={`score-chip ${p.id === view.drawer ? 'drawing' : ''} ${p.here ? '' : 'away'}`}>
+        <Avatar name={p.name} size={24} /><span>{p.id === myId ? 'You' : firstName(p.name)}</span><b>{p.pts}</b>{p.id === view.drawer && <Icon name="pencil" size={13} />}{view.guesses.some(g => g.by === p.id && g.ok) && <Icon name="check" size={13} />}
+      </span>)}
+    </div>}
     <Canvas strokes={view.strokes} color={color} size={size} onStroke={drawer && view.phase === 'drawing' ? (s, final) => { void api.scribbleAction({ action: 'stroke', stroke: s }).then(v => { if (final) setView(v); }).catch(() => {}); } : undefined} />
     {drawer && view.phase === 'drawing' && <Tools color={color} setColor={setColor} size={size} setSize={setSize} onUndo={() => void act({ action: 'undo' })} onClear={() => void act({ action: 'clear' })} />}
     <div className="chips">{view.guesses.length ? view.guesses.map((g, i) => <span key={i} className={`tag ${g.ok ? 'mint' : 'plain'}`} style={{ height: 28, fontSize: 13 }}>{g.by === myId ? 'You' : firstName(g.name)}: {g.text}</span>) : <span className="small muted">{drawer ? 'The others see your lines live and type guesses.' : 'Type what you think it is.'}</span>}</div>
@@ -188,6 +193,7 @@ function TruthDare({ api, onClose }: { api: GamesApi; onClose: () => void }) {
       <button className={`chip ${view.spicyOn ? 'on' : ''}`} onClick={() => void act({ action: 'spicy' })}>{!view.spicyOn && <Icon name="lock" size={14} />}{view.spicyOn ? 'Spicy' : asked ? 'Waiting for the others' : 'Spicy · 18+'}</button></div>
     {!asked && view.spicyAsked.length > 0 && !view.spicyOn && <div className="inset row" style={{ padding: 12 }}><span className="grow small">Someone asked to unlock Spicy (18+). Flirty, never explicit.</span><Button size="sm" onClick={() => void act({ action: 'spicy' })}>Say yes</Button></div>}
     <div className="inset col gap-16" style={{ padding: 24, minHeight: 220, justifyContent: 'space-between', background: card ? (card.kind === 'truth' ? 'rgba(200,182,255,.12)' : 'rgba(242,170,170,.12)') : undefined }}>
+      {(view.players?.filter(p => p.here).length ?? 0) > 2 && <p className="tiny muted">Playing: {view.players!.filter(p => p.here).map(p => p.id === myId ? 'You' : firstName(p.name)).join(', ')} · turns go around the circle</p>}
       {!card ? <><p className="small muted">{mine ? 'Your turn' : `${firstName(view.turnName)}’s turn`}</p><p className="title">{mine ? 'Truth or dare?' : `${firstName(view.turnName)} is choosing…`}</p>
         {mine && <div className="row gap-8"><Button className="grow" onClick={() => void act({ action: 'pick', kind: 'truth' })}>Truth</Button><Button className="grow" variant="secondary" onClick={() => void act({ action: 'pick', kind: 'dare' })}>Dare</Button><Button variant="ghost" onClick={() => void act({ action: 'pick', kind: 'random' })}>Surprise me</Button></div>}</>
         : <><p className="small" style={{ color: card.kind === 'truth' ? 'var(--lav)' : 'var(--rose)', fontWeight: 600 }}>{card.kind === 'truth' ? 'Truth' : 'Dare'} · {card.deck} · for {mine ? 'you' : firstName(view.turnName)}</p><p className="title" style={{ fontSize: 24 }}>{card.text}</p>

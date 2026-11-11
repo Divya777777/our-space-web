@@ -6,11 +6,14 @@ export type Goal = {
   id: string; name: string; kind: GoalKind; track: GoalTrack; target: number; unit: string; inc: number;
   span: GoalSpan; remind: boolean; owner: 'me' | 'both' | 'them';
   pending: boolean; invited: boolean; me: number | null; them: number | null; cheered: boolean; cheeredMe: boolean; mine: boolean;
+  /** Everyone the goal is for (servers with group goals): progress today, null until they join. */
+  people?: GoalPerson[];
 };
+export type GoalPerson = { id: string; name: string; joined: boolean; value: number | null; cheeredByMe?: boolean };
 export type GoalsToday = { day: string; partner: { id: string; name: string } | null; goals: Goal[] };
 export type MonthDay = { d: number; future?: boolean; me?: number | null; them?: number | null; rows?: { goalId: string; name: string; w: 'me' | 'them'; ok: boolean }[] };
 export type GoalsMonth = { month: string; partner: { id: string; name: string } | null; days: MonthDay[]; rates: { name: string; w: 'me' | 'them'; pct: number }[] };
-export type GoalDraft = { kind: GoalKind; name: string; target: number; unit: string; track: GoalTrack; inc: number; owner: 'me' | 'both'; span: GoalSpan; remind: boolean };
+export type GoalDraft = { kind: GoalKind; name: string; target: number; unit: string; track: GoalTrack; inc: number; owner: 'me' | 'both'; span: GoalSpan; remind: boolean; /** Group rooms: who else the goal is for (user ids). */ people?: string[] };
 
 export const TEMPLATES: { kind: GoalKind; label: string; name: string; target: number; unit: string; track: GoalTrack; inc: number; how: (health: string) => string }[] = [
   { kind: 'steps', label: 'Steps', name: 'Walk 10,000 steps', target: 10000, unit: 'steps', track: 'auto', inc: 1000, how: h => `Counts automatically from ${h}. You can also add steps by hand` },
@@ -34,7 +37,7 @@ export type GoalsApi = {
   create(draft: GoalDraft, day: string): Promise<void>;
   progress(id: string, day: string, value: number): Promise<void>;
   join(id: string): Promise<void>;
-  cheer(id: string, day: string): Promise<void>;
+  cheer(id: string, day: string, to?: string): Promise<void>;
   remove(id: string, day: string): Promise<void>;
 };
 type Api = <T>(path: string, body?: unknown, method?: string) => Promise<T>;
@@ -43,10 +46,10 @@ export function liveGoals(api: Api, code: string): GoalsApi {
   return {
     today: day => api<GoalsToday>(`${base}?day=${day}`),
     month: (month, today) => api<GoalsMonth>(`/rooms/${code}/goals-month?month=${month}&today=${today}`),
-    create: async (draft, day) => { await api(base, { ...draft, target: draft.track === 'check' ? 1 : draft.target, inc: draft.kind === 'steps' ? 1000 : draft.inc, day }, 'POST'); },
+    create: async (draft, day) => { const { people, ...rest } = draft; await api(base, { ...rest, ...(people ? { people: people.map(Number) } : {}), target: draft.track === 'check' ? 1 : draft.target, inc: draft.kind === 'steps' ? 1000 : draft.inc, day }, 'POST'); },
     progress: async (id, day, value) => { await api(`${base}/${id}/progress`, { day, value }, 'POST'); },
     join: async id => { await api(`${base}/${id}/join`, {}, 'POST'); },
-    cheer: async (id, day) => { await api(`${base}/${id}/cheer`, { day }, 'POST'); },
+    cheer: async (id, day, to) => { await api(`${base}/${id}/cheer`, { day, ...(to ? { to: Number(to) } : {}) }, 'POST'); },
     remove: async (id, day) => { await api(`${base}/${id}?day=${day}`, { day }, 'DELETE'); },
   };
 }

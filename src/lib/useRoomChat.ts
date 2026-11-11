@@ -87,7 +87,7 @@ export function useRoomChat(room: Room | undefined) {
               ref.current = { ...ref.current, parts };
               continue;
             }
-            const item: ChatItem = { id: String(m.id), from: m.from, name: m.name || sender?.name || '', at: meta.at || m.at, kind: meta.t, text: meta.text };
+            const item: ChatItem = { id: String(m.id), from: m.from, name: m.name || sender?.name || '', at: meta.at || m.at, kind: meta.t, text: meta.text, ...(Array.isArray(meta.pm) && meta.pm.length ? { to: meta.pm.map(String) } : {}) };
             if (meta.t !== 'text') {
               let body: Uint8Array = data;
               if (meta.fid && meta.parts) {
@@ -118,29 +118,33 @@ export function useRoomChat(room: Room | undefined) {
   const waitingForKeys = (room?.members || []).filter(p => !p.key && !p.devices?.length && p.id !== userId).map(p => p.name);
 
   async function deliver(meta: ChatMeta, data: Uint8Array | undefined, file?: ChatFile, onProgress?: (done: number, total: number) => void) {
-    const local: ChatItem = { id: `local-${meta.at}`, from: userId, name: space.user.name, at: meta.at, kind: meta.t as ChatItem['kind'], text: meta.text, file, pending: true };
+    const local: ChatItem = { id: `local-${meta.at}`, from: userId, name: space.user.name, at: meta.at, kind: meta.t as ChatItem['kind'], text: meta.text, file, pending: true, ...(meta.pm ? { to: meta.pm } : {}) };
     commit({ ...ref.current, items: [...ref.current.items, local] });
     try {
       const id = me.current || (me.current = loadIdentity(userId));
-      const to = recipientsFor(roomRef.current?.members || [], id, userId);
+      // A private message is sealed only for the people it's for, plus your own devices.
+      const pm = meta.pm;
+      const to = recipientsFor(roomRef.current?.members || [], id, userId).filter(r => !pm || r.id.split(':')[0] === userId || pm.includes(r.id.split(':')[0]));
+      const priv = pm ? { to: pm.map(Number) } : {};
       let head = meta; let body = data;
       if (data && data.length > PART) {
         const fid = `${userId}-${meta.at}`; const parts = Math.ceil(data.length / PART);
         for (let i = 0; i < parts; i++) {
-          await space.api(`/rooms/${code}/e2e`, { ...seal(pack({ t: 'part', fid, i, at: meta.at }, data.subarray(i * PART, (i + 1) * PART)), to, id), hint: 'part' }, 'POST');
+          await space.api(`/rooms/${code}/e2e`, { ...seal(pack({ t: 'part', fid, i, at: meta.at }, data.subarray(i * PART, (i + 1) * PART)), to, id), hint: 'part', ...priv }, 'POST');
           onProgress?.(i + 1, parts + 1);
         }
         head = { ...meta, fid, parts }; body = undefined;
       }
-      const sent = await space.api<{ id: number }>(`/rooms/${code}/e2e`, { ...seal(pack(head, body), to, id), hint: meta.t === 'image' ? 'photo' : meta.t === 'file' ? 'file' : 'message' }, 'POST');
+      const sent = await space.api<{ id: number }>(`/rooms/${code}/e2e`, { ...seal(pack(head, body), to, id), hint: meta.t === 'image' ? 'photo' : meta.t === 'file' ? 'file' : 'message', ...priv }, 'POST');
       commit({ ...ref.current, items: ref.current.items.map(i => i.id === local.id ? { ...i, id: String(sent.id), pending: false } : i) });
     } catch (e) {
       commit({ ...ref.current, items: ref.current.items.map(i => i.id === local.id ? { ...i, pending: false, failed: true } : i) });
       throw e;
     }
   }
-  async function sendText(text: string) { const t = text.trim(); if (t) await deliver({ t: 'text', text: t, at: Date.now() }, undefined); }
-  async function sendFile(file: File, onProgress?: (done: number, total: number) => void) {
+  /** `to`: send privately to these people only (group rooms). */
+  async function sendText(text: string, to?: string[]) { const t = text.trim(); if (t) await deliver({ t: 'text', text: t, at: Date.now(), ...(to?.length ? { pm: to } : {}) }, undefined); }
+  async function sendFile(file: File, onProgress?: (done: number, total: number) => void, to?: string[]) {
     const image = /^image\/(jpeg|png|webp|gif)$/.test(file.type);
     let blob: Blob = file; let w: number | undefined; let h: number | undefined; let mime = file.type || 'application/octet-stream'; let name = file.name;
     if (image && file.type !== 'image/gif') { const r = await shrinkImage(file); blob = r.blob; w = r.w; h = r.h; mime = 'image/jpeg'; name = name.replace(/\.\w+$/, '') + '.jpg'; }
@@ -150,7 +154,7 @@ export function useRoomChat(room: Room | undefined) {
     if (data.length > MAX_ATTACHMENT) throw new Error(`That file is too large. Private chat sends files up to ${MAX_ATTACHMENT / 1e6} MB.`);
     const at = Date.now();
     const key = await saveFile(userId, code, `out-${at}`, raw, mime);
-    await deliver({ t: image ? 'image' : 'file', name, mime, size: raw.length, w, h, at, ...(squeeze ? { z: 1 } : {}) }, data, { key, name, mime, size: raw.length, w, h }, onProgress);
+    await deliver({ t: image ? 'image' : 'file', name, mime, size: raw.length, w, h, at, ...(squeeze ? { z: 1 } : {}), ...(to?.length ? { pm: to } : {}) }, data, { key, name, mime, size: raw.length, w, h }, onProgress);
   }
   function dismiss(id: string) { commit({ ...ref.current, items: ref.current.items.filter(i => i.id !== id) }); }
   useEffect(() => { if (loaded) tell('d'); }, [loaded, tell]);

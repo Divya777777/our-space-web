@@ -3,9 +3,10 @@ export type Stroke = { id: string; c: string; s: number; p: [number, number][] }
 export type ScribbleView = {
   version: number; drawer: string; drawerName: string; round: number; rounds: number; phase: 'drawing' | 'guessing' | 'solved' | 'timeup' | 'over';
   word: string | null; length: number; msLeft: number; strokes: Stroke[]; guesses: { by: string; name: string; text: string; ok: boolean }[]; pts: Record<string, number>; solvedBy: string | null;
+  /** Newer servers: everyone in this game (scoreboard). */ players?: { id: string; name: string; pts: number; here: boolean }[];
 };
 export type Turn = { id: string; from: string; fromName: string; at: number; strokes: Stroke[]; length: number; hints: number; tries: string[]; solved: boolean; word: string; expired?: boolean; msLeft?: number; started?: boolean };
-export type TdView = { version: number; decks: { sweet: boolean; fun: boolean; spicy: boolean }; spicyAsked: string[]; spicyOn: boolean; turn: string; turnName: string; card: { kind: 'truth' | 'dare'; deck: string; text: string } | null; swaps: Record<string, number>; need: number };
+export type TdView = { version: number; decks: { sweet: boolean; fun: boolean; spicy: boolean }; spicyAsked: string[]; spicyOn: boolean; turn: string; turnName: string; card: { kind: 'truth' | 'dare'; deck: string; text: string } | null; swaps: Record<string, number>; need: number; players?: { id: string; name: string; here: boolean }[] };
 export type QuizQuestion = { id?: number; q: string; you?: string; opts: string[] };
 export type QuizState = { questions: QuizQuestion[]; ids?: number[]; answered: boolean; myAnswers: number[] | null; people: { id: string; name: string; ready: boolean; guessed: boolean; score: number | null; answers: number[] | null; guesses: number[] | null; questions?: QuizQuestion[] | null }[] };
 export type QuizAsk = { id: string; from: string; fromName: string; about: string; aboutName: string; mine: boolean; forMe: boolean; questions: QuizQuestion[]; guesses: number[]; truth: number[] | null; score: number | null; at: number; checkedAt: number | null };
