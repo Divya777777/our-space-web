@@ -766,11 +766,17 @@ button.self-tile.swap > .tile { position: absolute; inset: 0; width: 100%; heigh
 
 /* ───────── Room themes: living backdrops (components/RoomTheme.tsx) ───────── */
 /* Accent colours and glass tone while you're in a themed room. */
-html[data-room-theme='aurora'] { --lav: #8FE8CB; --lav-ink: #06231C; --lav-soft: rgba(143, 232, 203, .14); --glass: rgba(10, 26, 40, .46); --glass-strong: rgba(12, 30, 44, .86); --void: #050B1A; --void-2: #081424; }
-html[data-room-theme='golden'] { --lav: #F6C583; --lav-ink: #2B1708; --lav-soft: rgba(246, 197, 131, .15); --glass: rgba(36, 20, 32, .5); --glass-strong: rgba(42, 23, 35, .88); --void: #1B1230; --void-2: #22152F; }
+html[data-room-theme='aurora'] { --lav: #5CFFB5; --lav-ink: #04261A; --lav-soft: rgba(92, 255, 181, .14); --glass: rgba(12, 20, 54, .6); --glass-strong: rgba(18, 30, 72, .9); --void: #0E1A48; --void-2: #142257; }
+html[data-room-theme='golden'] :is(.shell, .sheet, .toast) { --lav: #F2B441; --lav-ink: #3A2306; --lav-soft: rgba(226, 150, 40, .16); --mint: #3E9C7C; --rose: #D9576A; --gold: #B7791F; --text: #3B2A10; --muted: #7C6642; --quiet: #A68E66; --glass: rgba(255, 252, 238, .58); --glass-strong: rgba(255, 250, 234, .94); --glass-soft: rgba(140, 90, 10, .07); --edge: rgba(140, 90, 10, .14); --edge-lit: rgba(255, 255, 255, .8); --depth: 0 30px 70px -34px rgba(150, 100, 20, .35), 0 8px 24px -12px rgba(150, 100, 20, .2); --depth-near: 0 16px 36px -18px rgba(150, 100, 20, .35); --void: #FFF3C6; --void-2: #FFF8DD; color: var(--text); }
 html[data-room-theme='sakura'] { --lav: #F8B4CF; --lav-ink: #2B0F1D; --lav-soft: rgba(248, 180, 207, .15); --glass: rgba(34, 19, 44, .48); --glass-strong: rgba(42, 23, 50, .87); --void: #141028; --void-2: #1B1330; }
-html[data-room-theme='sea'] { --lav: #7FDCF0; --lav-ink: #04222C; --lav-soft: rgba(127, 220, 240, .14); --glass: rgba(5, 30, 48, .46); --glass-strong: rgba(7, 34, 52, .87); --void: #03111F; --void-2: #06192B; }
-html[data-room-theme='rain'] { --lav: #A9C1FF; --lav-ink: #0D1630; --lav-soft: rgba(169, 193, 255, .15); --glass: rgba(16, 22, 44, .5); --glass-strong: rgba(20, 28, 52, .87); --void: #0A0F1F; --void-2: #10172B; }
+html[data-room-theme='sea'] :is(.shell, .sheet, .toast) { --lav: #1688B3; --lav-ink: #FFFFFF; --lav-soft: rgba(22, 136, 179, .13); --mint: #1F9C85; --rose: #E0607A; --gold: #C27C1A; --text: #0E3A4F; --muted: #4D7587; --quiet: #7FA0AE; --glass: rgba(255, 255, 255, .55); --glass-strong: rgba(246, 252, 255, .95); --glass-soft: rgba(10, 80, 120, .06); --edge: rgba(10, 80, 120, .13); --edge-lit: rgba(255, 255, 255, .85); --depth: 0 30px 70px -34px rgba(20, 90, 130, .35), 0 8px 24px -12px rgba(20, 90, 130, .2); --depth-near: 0 16px 36px -18px rgba(20, 90, 130, .35); --void: #DFF4FD; --void-2: #EEF9FE; color: var(--text); }
+/* Light themes: controls that were tinted dark become frosted white. */
+:is(html[data-room-theme='golden'], html[data-room-theme='sea']) .shell :is(.input, .seg) { background: rgba(255, 255, 255, .55); }
+:is(html[data-room-theme='golden'], html[data-room-theme='sea']) .shell .input:focus { background: rgba(255, 255, 255, .8); border-color: var(--lav); box-shadow: 0 0 0 4px var(--lav-soft); }
+:is(html[data-room-theme='golden'], html[data-room-theme='sea']) .shell .seg button.on { background: #fff; box-shadow: 0 2px 8px -2px rgba(0, 0, 0, .12); }
+:is(html[data-room-theme='golden'], html[data-room-theme='sea']) .sheet .input { background: rgba(255, 255, 255, .7); }
+/* Light themes keep the video screen and calls dark. */
+:is(html[data-room-theme='golden'], html[data-room-theme='sea']) :is(.screen, .call-layer, .call-pill, .call-float, .mini-call, .theme-card) { --text: #F4F1EA; --muted: #A9B1C6; --quiet: #737D96; --glass: rgba(26, 32, 52, 0.58); --glass-strong: rgba(30, 37, 60, 0.82); --glass-soft: rgba(255, 255, 255, 0.045); --edge: rgba(255, 255, 255, 0.09); --edge-lit: rgba(255, 255, 255, 0.16); color: var(--text); }
 html[data-room-theme='fireflies'] { --lav: #DDE98F; --lav-ink: #1C2206; --lav-soft: rgba(221, 233, 143, .13); --glass: rgba(10, 30, 25, .46); --glass-strong: rgba(12, 34, 28, .87); --void: #050D0C; --void-2: #0A1814; }
 html[data-room-theme] { --blur: blur(18px) saturate(140%); }
 html[data-room-theme] .rail { position: relative; z-index: 2; }
@@ -793,27 +799,25 @@ html[data-room-theme] .ambient:not(.room-theme) img { opacity: .16; }
 .sc-blob.a { left: -20cqmin; top: -30cqmin; background: rgba(124, 98, 214, .5); }
 .sc-blob.b { right: -20cqmin; bottom: -34cqmin; background: rgba(70, 150, 140, .34); }
 
-/* Aurora */
-.scene-aurora { background: linear-gradient(180deg, #040918 0%, #06162B 52%, #0A2A36 100%); }
-.sc-ribbon { left: -15%; top: -6%; width: 130%; height: 66%; border-radius: 50%; mix-blend-mode: screen; filter: blur(3.2cqmin);
-  -webkit-mask-image: repeating-linear-gradient(96deg, #000 0 2.5%, rgba(0,0,0,.35) 4.5%, #000 7.5%); mask-image: repeating-linear-gradient(96deg, #000 0 2.5%, rgba(0,0,0,.35) 4.5%, #000 7.5%); transform-origin: 50% 0; }
-.sc-ribbon.a { background: radial-gradient(60% 46% at 34% 46%, rgba(96, 255, 190, .75), transparent 70%), radial-gradient(50% 40% at 74% 38%, rgba(70, 220, 200, .5), transparent 70%); animation: scRibbon 17s ease-in-out infinite alternate; }
-.sc-ribbon.b { background: radial-gradient(54% 40% at 62% 52%, rgba(90, 170, 255, .55), transparent 70%), radial-gradient(40% 36% at 18% 40%, rgba(120, 255, 210, .4), transparent 70%); animation: scRibbon 23s ease-in-out infinite alternate-reverse; }
-.sc-ribbon.c { background: radial-gradient(46% 34% at 50% 34%, rgba(190, 130, 255, .5), transparent 70%); animation: scRibbon 29s ease-in-out -9s infinite alternate; }
-@keyframes scRibbon { 0% { transform: translateX(-7%) skewX(-10deg) scaleY(.86); opacity: .55; } 50% { opacity: 1; } 100% { transform: translateX(7%) skewX(12deg) scaleY(1.12); opacity: .7; } }
-.scene-aurora .sc-ground { fill: #030812; }
-.scene-aurora .sc-ground.far { fill: #0A2030; height: 30%; }
+/* Aurora: drawn live by a shader (sceneShaders.ts); this gradient is the fallback */
+.sc-gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.scene-aurora { background: linear-gradient(180deg, #0C1438 0%, #16275A 55%, #1E3866 100%); }
+.scene-aurora::after { background: radial-gradient(130% 100% at 50% 35%, transparent 60%, rgba(5, 10, 30, .28)); }
 
-/* Golden hour */
-.scene-golden { background: linear-gradient(180deg, #1A1130 0%, #3F2046 30%, #7E3848 54%, #C9683F 74%, #DC8E55 100%); }
-.sc-sun { left: 50%; top: 66%; width: 26cqmin; aspect-ratio: 1; margin: -13cqmin 0 0 -13cqmin; border-radius: 50%; background: radial-gradient(circle, #FFF3D2 0%, #FFD98F 38%, #FFB25E 62%, rgba(255, 170, 90, 0) 72%); box-shadow: 0 0 22cqmin 10cqmin rgba(255, 176, 96, .32); animation: scSun 9s ease-in-out infinite alternate; }
-@keyframes scSun { from { transform: translateY(1.4cqmin) scale(.97); } to { transform: translateY(-1.4cqmin) scale(1.03); } }
-.sc-birds { left: -14%; top: 22%; width: 12cqmin; fill: none; stroke: rgba(40, 18, 34, .8); stroke-width: 1.6; stroke-linecap: round; animation: scBirds 46s linear infinite; }
-@keyframes scBirds { to { transform: translate(132cqw, -12cqh); } }
-.scene-golden .sc-ground { fill: #170D22; height: 27%; }
-.scene-golden .sc-ground.far { fill: #3E1A34; height: 38%; }
-.sc-mote { left: calc(var(--x) * 100%); bottom: -8%; animation: scRise calc(18s + var(--t) * 18s) linear infinite; animation-delay: calc(var(--y) * -36s); }
-.sc-mote b { position: static; width: calc(1cqmin + var(--s) * 2.8cqmin); min-width: 4px; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, rgba(255, 236, 190, .9), rgba(255, 200, 120, 0) 70%); opacity: calc(.25 + var(--s) * .45); animation: scSway calc(4s + var(--s) * 4s) ease-in-out infinite alternate; }
+/* Golden hour: light-yellow room with sunbeams (yellow + peach, a hint of lilac opposite for depth) */
+.scene-golden { background: linear-gradient(165deg, #FFFCEB 0%, #FFF3C6 42%, #FFE3A3 78%, #FCD3A6 100%); }
+.scene-golden::after { background: none; }
+.sc-glow { left: -18cqmin; top: -22cqmin; width: 70cqmin; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, #FFFFFF 0%, rgba(255, 246, 200, .95) 28%, rgba(255, 228, 140, .5) 52%, transparent 72%); animation: scGlow 8s ease-in-out infinite alternate; }
+@keyframes scGlow { from { transform: scale(.96); opacity: .9; } to { transform: scale(1.06); opacity: 1; } }
+.sc-rays { left: -10%; top: -14%; width: 160%; height: 170%; transform-origin: 6% 8%;
+  background: repeating-conic-gradient(from 96deg at 6% 8%, rgba(255, 255, 255, .9) 0deg 2.8deg, rgba(255, 255, 255, 0) 4.8deg 9deg);
+  -webkit-mask: radial-gradient(120% 100% at 6% 8%, #000 8%, rgba(0,0,0,.5) 45%, transparent 78%); mask: radial-gradient(120% 100% at 6% 8%, #000 8%, rgba(0,0,0,.5) 45%, transparent 78%);
+  filter: blur(.6cqmin); animation: scRays 24s ease-in-out infinite alternate; }
+.sc-rays.b { opacity: .7; background: repeating-conic-gradient(from 100deg at 6% 8%, rgba(255, 250, 220, .6) 0deg 1.4deg, transparent 3deg 13deg); animation-duration: 31s; animation-direction: alternate-reverse; }
+@keyframes scRays { from { transform: rotate(-3deg); opacity: .65; } to { transform: rotate(4deg); opacity: 1; } }
+.sc-haze { right: -20cqmin; bottom: -26cqmin; width: 80cqmin; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, rgba(196, 170, 255, .38), rgba(255, 190, 160, .2) 45%, transparent 70%); filter: blur(4cqmin); animation: scGlow 12s ease-in-out infinite alternate-reverse; }
+.sc-mote { left: calc(var(--x) * 100%); bottom: -8%; animation: scRise calc(22s + var(--t) * 22s) linear infinite; animation-delay: calc(var(--y) * -44s); }
+.sc-mote b { position: static; width: calc(.5cqmin + var(--s) * 1.3cqmin); min-width: 3px; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, #FFFFFF 0%, rgba(255, 200, 100, .95) 40%, rgba(240, 170, 60, 0) 72%); opacity: calc(.5 + var(--s) * .5); animation: scSway calc(4s + var(--s) * 4s) ease-in-out infinite alternate; }
 @keyframes scRise { to { transform: translate3d(0, -118cqh, 0); } }
 @keyframes scSway { from { transform: translateX(-1.6cqw); } to { transform: translateX(1.6cqw); } }
 
@@ -827,34 +831,47 @@ html[data-room-theme] .ambient:not(.room-theme) img { opacity: .16; }
 .sc-petal b { position: static; width: calc(1.3cqmin + var(--s) * 1.5cqmin); min-width: 4px; aspect-ratio: 1.25; border-radius: 80% 12% 80% 12%; background: linear-gradient(135deg, #FFE1EB, #F29BBB); opacity: .9; animation: scTumble calc(2.6s + var(--s) * 3s) ease-in-out infinite alternate; }
 @keyframes scTumble { from { transform: translateX(-1.8cqw) rotate(-50deg); } to { transform: translateX(1.8cqw) rotate(170deg) scaleX(.7); } }
 
-/* Deep sea */
-.scene-sea { background: linear-gradient(180deg, #0D5670 0%, #073250 40%, #031523 100%); }
-.sc-ray { left: calc(var(--x) * 100% - 7%); top: -10%; width: calc(8% + var(--s) * 8%); height: 105%; background: linear-gradient(180deg, rgba(190, 245, 255, .3), rgba(150, 230, 255, .06) 60%, transparent); transform-origin: 50% 0; filter: blur(1.4cqmin); mix-blend-mode: screen; animation: scRay calc(8s + var(--s) * 7s) ease-in-out infinite alternate; clip-path: polygon(35% 0, 65% 0, 100% 100%, 0 100%); }
-@keyframes scRay { from { transform: rotate(9deg); opacity: .35; } to { transform: rotate(15deg); opacity: 1; } }
-.sc-bubble { left: calc(var(--x) * 100%); bottom: -7%; animation: scRise calc(9s + var(--t) * 12s) linear infinite; animation-delay: calc(var(--y) * -21s); }
-.sc-bubble b { position: static; width: calc(.7cqmin + var(--s) * 1.7cqmin); min-width: 3px; aspect-ratio: 1; border-radius: 50%; border: 1px solid rgba(200, 245, 255, .55); background: radial-gradient(circle at 32% 30%, rgba(255, 255, 255, .7), rgba(180, 240, 255, .08) 45%); animation: scSway calc(2.4s + var(--s) * 3s) ease-in-out infinite alternate; }
-.sc-jelly { width: 9cqmin; min-width: 20px; bottom: -22%; animation: scJelly 44s linear infinite; }
-.sc-jelly.j0 { left: 16%; }
-.sc-jelly.j1 { left: 76%; width: 6cqmin; min-width: 14px; animation-duration: 58s; animation-delay: -31s; }
-.sc-jelly .bell { fill: rgba(255, 170, 225, .5); stroke: rgba(255, 215, 245, .75); stroke-width: 1.2; transform-origin: 50% 30%; animation: scPulse 2.8s ease-in-out infinite alternate; transform-box: fill-box; }
-.sc-jelly .arms { stroke: rgba(255, 200, 240, .5); stroke-width: 1.4; }
-@keyframes scJelly { to { transform: translate3d(7cqw, -150cqh, 0); } }
-@keyframes scPulse { from { transform: scale(1.06, .9); } to { transform: scale(.92, 1.06); } }
-.sc-kelp { left: -1%; bottom: -1%; width: 102%; height: 30%; fill: #021019; }
-
-/* Rainy night */
-.scene-rain { background: linear-gradient(180deg, #080C1A 0%, #121A33 58%, #1E2747 100%); }
-.scene-rain .sc-ground.far { fill: #080C18; height: 24%; }
-.scene-rain .win { fill: rgba(150, 190, 255, .3); }
-.scene-rain .win.warm { fill: rgba(255, 205, 130, .45); }
-.sc-bokeh { left: calc(var(--x) * 104% - 4%); top: calc(50% + var(--y) * 44%); width: calc(3cqmin + var(--s) * 8cqmin); aspect-ratio: 1; border-radius: 50%; background: rgba(255, 196, 120, .5); filter: blur(.7cqmin); mix-blend-mode: screen; animation: scBokeh calc(4s + var(--t) * 6s) ease-in-out infinite alternate; animation-delay: calc(var(--t) * -8s); }
-.sc-bokeh:nth-child(3n) { background: rgba(255, 110, 120, .42); }
-.sc-bokeh:nth-child(4n) { background: rgba(110, 200, 255, .42); }
-.sc-bokeh:nth-child(5n) { background: rgba(200, 160, 255, .4); }
-@keyframes scBokeh { from { opacity: .18; transform: scale(.9); } to { opacity: .6; transform: scale(1.08); } }
-.sc-drop { left: calc(var(--x) * 130% - 4%); top: -16%; width: 1.5px; height: calc(5cqh + var(--s) * 8cqh); background: linear-gradient(180deg, transparent, rgba(200, 218, 255, .6)); rotate: 10deg; animation: scRain calc(.6s + var(--t) * .55s) linear infinite; animation-delay: calc(var(--y) * -1.2s); }
-@keyframes scRain { to { translate: -24cqh 136cqh; } }
-.sc-mist { left: 0; right: 0; bottom: 0; height: 30%; background: linear-gradient(0deg, rgba(120, 140, 200, .2), transparent); }
+/* Deep sea: a bright, shallow reef. Water, light shafts and the light net are a shader; the rest is drawn on top. */
+.scene-sea { background: linear-gradient(180deg, #F0FCFF 0%, #BDEBF8 50%, #78D3EC 100%); }
+.scene-sea::after { background: none; }
+.sc-sand { left: 0; right: 0; bottom: 0; height: 12%; background: linear-gradient(0deg, rgba(250, 238, 208, .95), rgba(250, 238, 208, 0)); }
+.sc-reef { left: -1%; bottom: -1%; width: 34cqw; min-width: 120px; }
+.sc-reef.flip { left: auto; right: -1%; transform: scaleX(-1); filter: hue-rotate(-28deg); width: 30cqw; }
+.sc-reef .sway { transform-box: fill-box; transform-origin: 50% 100%; animation: scWeed 5s ease-in-out infinite alternate; }
+@keyframes scWeed { from { transform: skewX(-7deg); } to { transform: skewX(7deg); } }
+.sc-bubble { left: calc(var(--x) * 100%); bottom: -7%; animation: scRise calc(10s + var(--t) * 14s) linear infinite; animation-delay: calc(var(--y) * -24s); }
+.sc-bubble b { position: static; width: calc(.7cqmin + var(--s) * 2cqmin); min-width: 4px; aspect-ratio: 1; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, .9); background: radial-gradient(circle at 32% 30%, #fff 0 18%, rgba(255, 255, 255, .3) 30%, rgba(120, 200, 235, .18) 70%); box-shadow: 0 0 0 1px rgba(60, 160, 205, .22); animation: scSway calc(2.4s + var(--s) * 3s) ease-in-out infinite alternate; }
+.sc-fish, .sc-school, .sc-turtle { left: 0; top: calc(var(--y) * 100%); animation: scSwim calc(var(--d) * 1s) linear infinite; animation-delay: calc(var(--t) * var(--d) * -1s); }
+.sc-fish { width: calc(var(--s) * 1cqmin); min-width: 16px; }
+.sc-fish.left { animation-name: scSwimL; }
+.sc-fish svg { position: static; width: 100%; overflow: visible; filter: drop-shadow(0 .5cqmin .7cqmin rgba(20, 100, 140, .22)); animation: scBob 3.2s ease-in-out infinite alternate; }
+.sc-fish.left svg { transform: scaleX(-1); }
+.sc-fish .body { fill: var(--c); } .sc-fish .tail, .sc-fish .fin2 { fill: var(--c2); }
+.sc-fish .tail { transform-box: fill-box; transform-origin: 100% 50%; animation: scTail .45s ease-in-out infinite alternate; }
+.sc-fish .stripe { fill: none; stroke: #fff; stroke-width: 4.5; stroke-linecap: round; }
+.sc-fish.plain .stripe { display: none; }
+.sc-school { width: 22cqmin; min-width: 44px; aspect-ratio: 2.4; }
+.sc-school svg { fill: rgba(20, 140, 175, .5); animation: scBob 2.6s ease-in-out infinite alternate; }
+.sc-school svg:nth-child(odd) { animation-delay: -1.3s; }
+.sc-school.far { width: 14cqmin; min-width: 30px; animation-name: scSwimL; }
+.sc-school.far svg { transform: scaleX(-1); fill: rgba(20, 140, 175, .3); }
+.sc-turtle { --y: .62; --d: 84; --t: .45; width: 17cqmin; min-width: 40px; }
+.sc-turtle svg { position: static; width: 100%; overflow: visible; filter: drop-shadow(0 .8cqmin 1cqmin rgba(20, 100, 140, .2)); animation: scGlide 5s ease-in-out infinite alternate; }
+.sc-turtle .flip { transform-box: fill-box; transform-origin: 20% 0; animation: scFlip 1.6s ease-in-out infinite alternate; }
+.sc-turtle .flip.back { transform-origin: 100% 0; animation-duration: 2.1s; }
+@keyframes scFlip { from { transform: rotate(-16deg); } to { transform: rotate(22deg); } }
+@keyframes scGlide { from { translate: 0 -2.2cqh; rotate: -3deg; } to { translate: 0 2.2cqh; rotate: 3deg; } }
+.sc-jelly { width: 8cqmin; min-width: 18px; bottom: -22%; animation: scJelly 50s linear infinite; }
+.sc-jelly.j0 { left: 12%; animation-delay: -18s; }
+.sc-jelly.j1 { left: 84%; width: 5.5cqmin; min-width: 13px; animation-duration: 66s; animation-delay: -40s; }
+.sc-jelly .bell { fill: rgba(255, 140, 200, .5); stroke: rgba(255, 255, 255, .9); stroke-width: 1.4; transform-box: fill-box; transform-origin: 50% 30%; animation: scPulse 2.6s ease-in-out infinite alternate; }
+.sc-jelly .arms { stroke: rgba(255, 130, 195, .6); stroke-width: 1.5; }
+@keyframes scJelly { to { transform: translate3d(6cqw, -150cqh, 0); } }
+@keyframes scPulse { from { transform: scale(1.07, .9); } to { transform: scale(.92, 1.06); } }
+@keyframes scSwim { from { transform: translate3d(-24cqw, 0, 0); } to { transform: translate3d(112cqw, 0, 0); } }
+@keyframes scSwimL { from { transform: translate3d(112cqw, 0, 0); } to { transform: translate3d(-24cqw, 0, 0); } }
+@keyframes scBob { from { translate: 0 -1cqh; } to { translate: 0 1cqh; } }
+@keyframes scTail { from { transform: rotate(-16deg); } to { transform: rotate(16deg); } }
 
 /* Fireflies */
 .scene-fireflies { background: radial-gradient(90% 75% at 50% 26%, #1B4034 0%, #0B211B 55%, #040B0A 100%); }
@@ -866,7 +883,7 @@ html[data-room-theme] .ambient:not(.room-theme) img { opacity: .16; }
 .sc-fly b { position: static; width: calc(.5cqmin + var(--s) * .55cqmin); min-width: 3px; aspect-ratio: 1; border-radius: 50%; background: #F1FBA8; box-shadow: 0 0 1.8cqmin .6cqmin rgba(222, 245, 130, .6); animation: scBlink calc(2.2s + var(--s) * 3.2s) ease-in-out infinite; animation-delay: calc(var(--t) * -5s); }
 @keyframes scBlink { 0%, 100% { opacity: .1; } 45%, 60% { opacity: 1; } }
 
-@media (prefers-reduced-motion: reduce) { .scene *, .room-theme { animation: none !important; } .sc-petal, .sc-drop, .sc-bubble, .sc-mote, .sc-jelly { display: none !important; } }
+@media (prefers-reduced-motion: reduce) { .scene *, .room-theme { animation: none !important; } .sc-petal, .sc-bubble, .sc-mote, .sc-jelly { display: none !important; } }
 
 /* The picker */
 .theme-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

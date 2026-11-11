@@ -56,3 +56,13 @@ jobs:
           path: dist
       - id: pages
         uses: actions/deploy-pages@v4
+      # Tell Bing (and Yandex, Seznam…) through IndexNow that the pages changed, so they re-crawl now instead of
+      # waiting. The key file web/public/9f8d5cc9530c05038efbfbac00ca1dcb.txt proves we own the site. Never blocks a deploy.
+      - name: Ping IndexNow (Bing)
+        continue-on-error: true
+        run: |
+          sleep 60
+          URLS=$(grep -o '<loc>[^<]*</loc>' dist/sitemap.xml | sed 's#</*loc>##g' | python3 -c 'import sys,json;print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')
+          curl -sS -o /dev/null -w "IndexNow: HTTP %{http_code}\n" -X POST https://api.indexnow.org/indexnow \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            -d "{\"host\":\"getourspace.com\",\"key\":\"9f8d5cc9530c05038efbfbac00ca1dcb\",\"keyLocation\":\"https://getourspace.com/9f8d5cc9530c05038efbfbac00ca1dcb.txt\",\"urlList\":$URLS}"
