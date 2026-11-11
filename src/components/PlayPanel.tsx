@@ -56,7 +56,7 @@ export function PlayPanel({ code, onShare }: { code: string; onShare: (text: str
     <span className="center" style={{ width: 40, height: 40, borderRadius: 12, background: color + '22', color, flex: 'none' }}><Icon name={icon} /></span>
     <span className="grow"><span className="h3" style={{ display: 'block' }}>{title}</span><span className="small muted">{sub}</span></span><span className="small" style={{ color, fontWeight: 600 }}>{action}</span>
   </button>;
-  const me = hub?.scores.find(x => x.name === 'You') || hub?.scores[0];
+  const ranked = hub ? [...hub.scores].sort((a, b) => b.points - a.points) : [];
   return <div className="col gap-12" style={{ gap: 12 }}>
     {hub?.live.scribble && hub.live.scribble.phase !== 'over' && live && banner('#C8B6FF', 'pencil', `${firstName(hub.live.scribble.drawerName)} is playing Scribble`, 'Join in and guess the drawing', 'Join', () => setOpen('live'))}
     {hub?.live.td && live && banner('#F2AAAA', 'cards', 'Truth or Dare is on', hub.live.td.turnName === 'You' ? 'Your turn' : `${firstName(hub.live.td.turnName)}’s turn`, 'Join', () => void td(true))}
@@ -67,7 +67,7 @@ export function PlayPanel({ code, onShare }: { code: string; onShare: (text: str
     {game('cards', '#F2AAAA', 'Truth or Dare', 'Sweet, fun — or spicy if you all agree.', live ? 'You’re on a call · no time limit' : onCall ? 'Opens when someone joins your call' : 'Played live on a call', () => { if (live) void td(); else if (onCall) toast(`Waiting for ${partner === 'them' ? 'someone' : partner} to join the call.`); else toast('Truth or Dare is played on a call.', { action: { label: 'Call now', run: callRoom } }); })}
     {game('heart', '#B6DDCF', hub?.partner ? `How well do you know ${partner}?` : 'How well do you know me?', 'Answer 10 questions about them. They check, you both see the score.', 'Anytime · about 2 minutes', () => setOpen('quiz'))}
     {hub && <div className="inset row" style={{ padding: 14 }}><span className="gold"><Icon name="trophy" size={22} /></span><div className="grow"><p className="h3">{MONTHS[Number(hub.month.slice(5, 7)) - 1]} scores</p><p className="tiny muted">Scribble and quiz points</p></div>
-      <p className="small" style={{ fontWeight: 600 }}>{hub.scores.slice(0, 3).map((x, i) => <span key={x.id} className={i ? 'mint' : 'lav'}>{i ? <span className="muted"> · </span> : null}{x === me ? 'You' : firstName(x.name)} {x.points}</span>)}</p></div>}
+      <p className="small" style={{ fontWeight: 600 }}>{ranked.slice(0, 4).map((x, i) => <span key={x.id} className={x.id === space.user.id ? 'lav' : 'mint'}>{i ? <span className="muted"> · </span> : null}{firstName(x.id === space.user.id ? space.user.name : x.name)} {x.points}</span>)}</p></div>}
     {open === 'live' && <LiveScribble api={api} onClose={() => { setOpen(null); refresh(); }} />}
     {open === 'draw' && <DrawAndSend api={api} partner={partner} onClose={() => { setOpen(null); refresh(); }} />}
     {open === 'turn' && <GuessTurn api={api} id={turnId} onClose={() => { setOpen(null); refresh(); }} onDraw={() => setOpen('draw')} />}
@@ -116,13 +116,15 @@ function LiveScribble({ api, onClose }: { api: GamesApi; onClose: () => void }) 
   if (view === undefined) return <Sheet title="Scribble" wide onClose={onClose}><p className="muted">Getting the canvas ready…</p></Sheet>;
   if (!view) return <Sheet title="Scribble" wide onClose={onClose}><p className="muted">This game has ended.</p><Button onClick={() => void act({ action: 'start' })}>Start a new game</Button></Sheet>;
   const myId = space.user.id; const drawer = view.drawer === myId; const myPts = view.pts[myId] || 0;
+  const nameFor = (id: string) => space.rooms.flatMap(r => r.members).find(m => m.id === id)?.name || view.guesses.find(g => g.by === id)?.name || (view.drawer === id ? view.drawerName : 'Player');
+  const endGame = <Button variant="secondary" icon="x" onClick={() => { void act({ action: 'end' }); onClose(); }}>End game for everyone</Button>;
   if (view.phase === 'over') return <Sheet title="Scribble" sub="Game over" wide onClose={onClose}>
-    <div className="inset col gap-8" style={{ padding: 28, alignItems: 'center' }}><span className="gold"><Icon name="trophy" size={40} /></span><p className="title">You {myPts} · Others {Object.entries(view.pts).filter(([id]) => id !== myId).reduce((a, [, v]) => a + v, 0)}</p><p className="small muted">Points are added to this month’s scores.</p></div>
+    <div className="inset col gap-8" style={{ padding: 28, alignItems: 'center' }}><span className="gold"><Icon name="trophy" size={40} /></span><p className="title">{Object.entries(view.pts).length ? Object.entries(view.pts).sort((a, b) => b[1] - a[1]).map(([id, v]) => `${firstName(id === myId ? space.user.name : nameFor(id))} ${v}`).join(' · ') : `${firstName(space.user.name)} ${myPts}`}</p><p className="small muted">Points are added to this month’s scores.</p></div>
     <Button onClick={() => void act({ action: 'start' })}>{drawer ? 'Play again' : 'Draw the next game'}</Button><Button variant="secondary" onClick={() => { void act({ action: 'end' }); onClose(); }}>Back to games</Button>
   </Sheet>;
   const solver = view.guesses.find(g => g.ok);
   const next = (view.phase === 'solved' || view.phase === 'timeup') && <Button size="sm" onClick={() => void act({ action: 'next' })}>{view.round >= view.rounds ? 'See results' : 'Next round'}</Button>;
-  return <Sheet title="Scribble" sub={`Round ${view.round} of ${view.rounds} · ${drawer ? 'you draw' : `${firstName(view.drawerName)} draws`}`} wide onClose={onClose}>
+  return <Sheet title="Scribble" sub={`Round ${view.round} of ${view.rounds} · ${drawer ? 'you draw' : `${firstName(view.drawerName)} draws`}`} wide onClose={onClose} footer={endGame}>
     <div className="row between">{drawer || view.word ? <div><p className="tiny muted">{drawer ? 'Your word · only you see it' : 'The word was'}</p><p className="title" style={{ letterSpacing: '.08em' }}>{(view.word || '').toUpperCase()}</p></div> : <div className="letters">{Array.from({ length: view.length }, (_, i) => <span key={i} />)}</div>}
       <Countdown ms={view.msLeft} running={(view.phase === 'drawing' || view.phase === 'guessing') && view.strokes.length > 0} /></div>
     <Canvas strokes={view.strokes} color={color} size={size} onStroke={drawer && view.phase === 'drawing' ? (s, final) => { void api.scribbleAction({ action: 'stroke', stroke: s }).then(v => { if (final) setView(v); }).catch(() => {}); } : undefined} />

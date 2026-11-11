@@ -26,6 +26,8 @@ export function useBlocked(api: Api | null) {
   return list;
 }
 export const isBlockedId = (list: Blocked[], id: string) => list.some(b => b.id === id);
+/** The current blocked list, for code outside React (calls). */
+export const blockedNow = () => blocked;
 export async function blockUser(api: Api, userId: string) { set((await api<{ blocked: Blocked[] }>('/blocks', { userId: Number(userId) }, 'POST')).blocked); }
 export async function unblockUser(api: Api, userId: string) { set((await api<{ blocked: Blocked[] }>(`/blocks/${userId}`, undefined, 'DELETE')).blocked); }
 export async function reportUser(api: Api, report: { userId: string; reason: string; details?: string; message?: string; roomCode?: string; block?: boolean }) {

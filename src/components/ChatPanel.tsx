@@ -42,8 +42,29 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
     return () => { window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check); };
   }, [chat.loaded, cursor, markRead]);
   const others = room.members.map(m => m.id).filter(id => id !== space.user.id);
+  // Everyone else in this room is someone you blocked: no messages either way until you unblock.
+  const allBlocked = others.length > 0 && others.every(id => isBlockedId(blocked, id));
   useEffect(() => { const box = end.current?.closest('.side-body'); if (box && box.scrollHeight > box.clientHeight + 1) box.scrollTop = box.scrollHeight; }, [items.length]);
-  const send = async () => { const t = text; if (!t.trim()) return; setText(''); try { await chat.sendText(t); } catch (e) { toast((e as Error).message || 'Message not sent.', { tone: 'error' }); } };
+  // Photos and files wait in a tray above the message box (like WhatsApp) until Send is pressed.
+  const [staged, setStaged] = useState<{ id: string; file: File; url: string }[]>([]);
+  const stage = (files: File[]) => {
+    if (!files.length) return;
+    setStaged(list => {
+      const room = Math.max(0, 20 - list.length);
+      if (files.length > room) toast('Up to 20 at a time.', { tone: 'info' });
+      return [...list, ...files.slice(0, room).map(file => ({ id: Math.random().toString(36).slice(2), file, url: file.type.startsWith('image/') ? URL.createObjectURL(file) : '' }))];
+    });
+  };
+  const unstage = (id: string) => setStaged(list => { const gone = list.find(x => x.id === id); if (gone?.url) URL.revokeObjectURL(gone.url); return list.filter(x => x.id !== id); });
+  const stagedRef = useRef(staged); stagedRef.current = staged;
+  useEffect(() => () => { stagedRef.current.forEach(x => x.url && URL.revokeObjectURL(x.url)); }, []);
+  const send = async () => {
+    const t = text; const files = staged;
+    if (!t.trim() && !files.length) return;
+    setText('');
+    if (files.length) { setStaged([]); await attach(files.map(x => x.file)); files.forEach(x => x.url && URL.revokeObjectURL(x.url)); }
+    if (t.trim()) { try { await chat.sendText(t); } catch (e) { toast((e as Error).message || 'Message not sent.', { tone: 'error' }); } }
+  };
   // One or many photos / files: each goes as its own message, in order.
   const attach = async (files: File[]) => {
     const list = files.slice(0, 20);
@@ -65,7 +86,7 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
     onDragEnter: (e: React.DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); depth.current++; setDropping(true); },
     onDragOver: (e: React.DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; },
     onDragLeave: (e: React.DragEvent) => { if (!hasFiles(e)) return; depth.current = Math.max(0, depth.current - 1); if (!depth.current) setDropping(false); },
-    onDrop: (e: React.DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); depth.current = 0; setDropping(false); const f = Array.from(e.dataTransfer.files); if (f.length && !progress) void attach(f); },
+    onDrop: (e: React.DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); depth.current = 0; setDropping(false); const f = Array.from(e.dataTransfer.files); if (f.length) stage(f); },
   };
   const onPaste = (e: React.ClipboardEvent) => {
     const files = Array.from(e.clipboardData?.files || []);
@@ -73,11 +94,11 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
     e.preventDefault();
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     // Screenshots arrive as "image.png"; give them a name worth keeping.
-    void attach(files.map(f => (/^image\.\w+$/.test(f.name) ? new File([f], `Pasted ${stamp}.${f.name.split('.').pop()}`, { type: f.type }) : f)));
+    stage(files.map(f => (/^image\.\w+$/.test(f.name) ? new File([f], `Pasted ${stamp}.${f.name.split('.').pop()}`, { type: f.type }) : f)));
   };
   let lastDay = ''; let lastFrom = '';
   return <div className={`col chat-drop ${dropping ? 'dropping' : ''}`} style={{ flex: 1, minHeight: 0, gap: 0 }} {...dragProps}>
-    {dropping && <div className="drop-hint" aria-hidden="true"><Icon name="paperclip" size={22} />Drop to send</div>}
+    {dropping && <div className="drop-hint" aria-hidden="true"><Icon name="paperclip" size={22} />Drop to add</div>}
     <div className="chat" style={{ flex: 1 }}>
       <p className="tiny quiet row gap-8" style={{ justifyContent: 'center', padding: '4px 0 10px', textAlign: 'center' }}><Icon name="lock" size={13} />Private. Only people in this room can read it. History stays in this browser.</p>
       {!hideLink && <div className="link-cta-wrap"><button className="link-cta" onClick={() => setLinking(true)}>
@@ -86,7 +107,7 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
       </button>
         <button className="link-cta-x" aria-label="Hide this (you can find it under You)" title="Hide (it stays under You)" onClick={() => { setHideLink(true); try { localStorage.setItem('ourspace.hideLinkCta', '1'); } catch { /* fine */ } }}><Icon name="x" size={14} /></button></div>}
       {!chat.loaded && <p className="small muted">Loading messages…</p>}
-      {chat.loaded && !items.length && <div className="col gap-8" style={{ alignItems: 'center', textAlign: 'center', padding: '40px 12px' }}><Icon name="chat" size={28} /><p className="h3">Say hi</p><p className="small muted">Messages, photos and files up to 16 MB. Drop a file here to send it.</p></div>}
+      {chat.loaded && !items.length && <div className="col gap-8" style={{ alignItems: 'center', textAlign: 'center', padding: '40px 12px' }}><Icon name="chat" size={28} /><p className="h3">Say hi</p><p className="small muted">Messages, photos and files up to 16 MB. Drop a file here to add it.</p></div>}
       {items.map(i => {
         const day = dayLabel(i.at); const showDay = day !== lastDay; lastDay = day;
         const showName = i.from !== space.user.id && (i.from !== lastFrom || showDay); lastFrom = i.from;
@@ -100,14 +121,22 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
     {chat.unreadable > 0 && <div style={{ marginTop: 10 }}><Notice icon="lock">Some messages were sent before this browser joined, or from an older phone app. <button className="lav" onClick={() => setLinking(true)}>Copy them from your phone</button></Notice></div>}
     {linking && <LinkSheet onClose={() => setLinking(false)} />}
     {chat.waitingForKeys.length > 0 && <div style={{ marginTop: 10 }}><Notice>{chat.waitingForKeys.map(firstName).join(', ')} will see messages once they open Our Space on an updated app.</Notice></div>}
+    {allBlocked ? <div style={{ marginTop: 12 }}><Notice icon="lock">You blocked {others.length > 1 ? 'everyone else here' : firstName(room.members.find(m => m.id === others[0])?.name || 'them')}. Messages and calls are off; songs and the room still work. Unblock under People to chat again.</Notice></div> : <>
+    {staged.length > 0 && <div className="staged" aria-label="Ready to send">
+      {staged.map(x => <div key={x.id} className={`staged-item${x.url ? '' : ' file'}`} title={x.file.name}>
+        {x.url ? <img src={x.url} alt={x.file.name} /> : <><Icon name="file" size={18} /><span className="ellipsis">{x.file.name}</span><span className="tiny muted">{(x.file.size / 1e6).toFixed(1)} MB</span></>}
+        <button className="staged-x" aria-label={`Remove ${x.file.name}`} onClick={() => unstage(x.id)}><Icon name="x" size={12} /></button>
+      </div>)}
+      <span className="tiny muted staged-note">{staged.length === 1 ? 'Press send to share it' : `Press send to share these ${staged.length}`}</span>
+    </div>}
     <div className="composer" style={{ marginTop: 12 }}>
-       <input ref={fileInput} type="file" multiple hidden onChange={e => { const f = Array.from(e.target.files || []); e.target.value = ''; if (f.length) void attach(f); }} />
+       <input ref={fileInput} type="file" multiple hidden onChange={e => { const f = Array.from(e.target.files || []); e.target.value = ''; if (f.length) stage(f); }} />
       <IconButton icon="paperclip" label="Send photos or files (pick several at once)" onClick={() => fileInput.current?.click()} disabled={!!progress} />
-      <textarea aria-label={`Message ${room.name}`} className="input" placeholder={progress || 'Message'} value={text} rows={1}
+      <textarea aria-label={`Message ${room.name}`} className="input" placeholder={progress || (staged.length ? 'Add a message (optional)' : 'Message')} value={text} rows={1}
         onChange={e => { setText(e.target.value); e.target.style.height = '44px'; e.target.style.height = Math.min(140, e.target.scrollHeight) + 'px'; }}
         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} onPaste={onPaste} />
-      <IconButton icon="send" variant="accent" label="Send message" onClick={() => void send()} disabled={!text.trim()} />
-    </div>
+      <IconButton icon="send" variant="accent" label="Send message" onClick={() => void send()} disabled={(!text.trim() && !staged.length) || !!progress} />
+    </div></>}
   </div>;
 }
 

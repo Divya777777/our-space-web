@@ -30,6 +30,11 @@ export function Segments<T extends string>({ value, options, onChange, label }: 
 }
 
 /** A floating glass sheet. Escape and the backdrop close it; focus moves inside. */
+/** Where sheets go: the page, or the element in browser full screen (a full-screen call), so they show on top of it. */
+function sheetHost(): Element {
+  const fs = document.fullscreenElement;
+  return fs && !/^(VIDEO|IFRAME|CANVAS|IMG)$/.test(fs.tagName) ? fs : document.body;
+}
 export function Sheet({ title, sub, onClose, children, footer, wide, back }: React.PropsWithChildren<{ title: React.ReactNode; sub?: React.ReactNode; onClose: () => void; footer?: React.ReactNode; wide?: boolean; back?: () => void }>) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -53,7 +58,7 @@ export function Sheet({ title, sub, onClose, children, footer, wide, back }: Rea
       <div className="sheet-body">{children}</div>
       {footer && <div className="sheet-foot">{footer}</div>}
     </div>
-  </div>, box.current?.ownerDocument.body || document.body);
+  </div>, sheetHost());
 }
 
 type ToastOpts = { tone?: 'error' | 'info'; icon?: IconName; action?: { label: string; run: () => void }; ms?: number };

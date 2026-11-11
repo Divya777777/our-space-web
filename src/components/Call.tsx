@@ -1,6 +1,7 @@
 // Voice and video calls in the browser, using the same signalling as the phone app (call inbox + per-person
 // signals, one RTCPeerConnection per other person, offers from the lower user ID, media state on a data channel).
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { blockedNow, isBlockedId } from '../lib/safety';
 import { AudioDeviceSheet, canPickSpeaker, loadAudioChoice, saveAudioChoice, useAudioDevices } from './AudioDevices';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
@@ -8,7 +9,7 @@ import { usePip, useWantPip } from '../lib/pip';
 import { useSpace } from '../lib/space';
 import { actionableSignals } from '../lib/callProtocol';
 import type { CallPeer, CallSignal } from '../lib/types';
-import { Avatar, IconButton, firstName } from './ui';
+import { Avatar, IconButton, firstName, useToast } from './ui';
 import { Icon } from './Icon';
 
 type Phase = 'idle' | 'incoming' | 'outgoing' | 'connecting' | 'connected' | 'reconnecting';
@@ -53,6 +54,7 @@ async function keepResolution(sender: RTCRtpSender | null | undefined) {
 export function CallProvider({ children }: React.PropsWithChildren) {
   const space = useSpace();
   const nav = useNavigate();
+  const toast = useToast();
   const latest = useRef(space); useEffect(() => { latest.current = space; });
   const [phase, setPhase] = useState<Phase>('idle'); const phaseRef = useRef<Phase>('idle');
   const [call, setCall] = useState<ActiveCall | null>(null); const callRef = useRef<ActiveCall | null>(null);
@@ -213,7 +215,9 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   }
   async function start(code: string, members: CallPeer[], video: boolean, title: string) {
     if (callRef.current) { setExpanded(true); return; }
-    if (!members.length) return;
+    // Never ring someone you blocked; the rest of the room still gets the call.
+    members = members.filter(m => !isBlockedId(blockedNow(), m.id));
+    if (!members.length) { toast('You blocked this person, so you can’t call them. Unblock them under People to call again.', { tone: 'info' }); return; }
     const me = latest.current.user;
     const target: ActiveCall = { code, video, title, members, starter: { id: me.id, name: me.name }, mine: true, id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` };
     select(target); transition('connecting'); setExpanded(true); setError('');
@@ -257,6 +261,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     const from: CallPeer = { id: signal.from, name: signal.name };
     if (signal.type === 'invite') {
       if (signal.sentAt && Date.now() - signal.sentAt > 45000) return;
+      if (isBlockedId(blockedNow(), signal.from)) return; // blocked: never rings
       if (callRef.current?.id === callId) return;
       if (callRef.current) { await latest.current.signalCall(signal.code, signal.from, 'reject', { reason: 'busy', callId }); return; }
       const offer = signal.payload.offer as Description | undefined;
