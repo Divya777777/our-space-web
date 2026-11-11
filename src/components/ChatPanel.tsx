@@ -44,7 +44,6 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
   const others = room.members.map(m => m.id).filter(id => id !== space.user.id);
   // Everyone else in this room is someone you blocked: no messages either way until you unblock.
   const allBlocked = others.length > 0 && others.every(id => isBlockedId(blocked, id));
-  useEffect(() => { const box = end.current?.closest('.side-body'); if (box && box.scrollHeight > box.clientHeight + 1) box.scrollTop = box.scrollHeight; }, [items.length]);
   // Photos and files wait in a tray above the message box (like WhatsApp) until Send is pressed.
   const [staged, setStaged] = useState<{ id: string; file: File; url: string }[]>([]);
   const stage = (files: File[]) => {
@@ -57,6 +56,7 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
   };
   const unstage = (id: string) => setStaged(list => { const gone = list.find(x => x.id === id); if (gone?.url) URL.revokeObjectURL(gone.url); return list.filter(x => x.id !== id); });
   const stagedRef = useRef(staged); stagedRef.current = staged;
+  useEffect(() => { const box = end.current?.closest('.side-body'); if (box && box.scrollHeight > box.clientHeight + 1) box.scrollTop = box.scrollHeight; }, [items.length, staged.length]);
   useEffect(() => () => { stagedRef.current.forEach(x => x.url && URL.revokeObjectURL(x.url)); }, []);
   const send = async () => {
     const t = text; const files = staged;
