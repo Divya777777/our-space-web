@@ -189,7 +189,8 @@
 .dv-laptop .dv-screen { position: relative; aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden; background: #0C0E16; display: flex; flex-direction: column; }
 .dv-base { position: relative; height: calc(var(--w) * .028); border-radius: 0 0 14px 14px; background: linear-gradient(180deg, #3A3C47, #22232B); }
 .dv-base span { position: absolute; left: 50%; top: 0; width: 16%; height: 40%; margin-left: -8%; border-radius: 0 0 8px 8px; background: #15161C; }
-.dv-phone { --h: min(100cqh, 210cqw); height: var(--h); aspect-ratio: 9 / 19; flex: none; padding: calc(var(--h) * .018); border-radius: calc(var(--h) * .085); background: linear-gradient(160deg, #2E3039, #17181E); border: 1px solid rgba(255,255,255,.14); box-shadow: 0 60px 120px -50px rgba(0,0,0,.95); }
+/* Width is set too (not only aspect-ratio): Safari sized absolutely placed phones from their content and stretched them wide. */
+.dv-phone { --h: min(100cqh, 210cqw); height: var(--h); width: calc(var(--h) * 9 / 19); min-width: 0; aspect-ratio: 9 / 19; flex: none; padding: calc(var(--h) * .018); border-radius: calc(var(--h) * .085); background: linear-gradient(160deg, #2E3039, #17181E); border: 1px solid rgba(255,255,255,.14); box-shadow: 0 60px 120px -50px rgba(0,0,0,.95); }
 .dv-phone .dv-screen { position: relative; height: 100%; border-radius: calc(var(--h) * .07); overflow: hidden; background: #0C0E16; display: flex; flex-direction: column; padding-top: calc(var(--h) * .055); }
 .dv-island { position: absolute; left: 50%; top: calc(var(--h) * .014); width: 30%; height: calc(var(--h) * .03); margin-left: -15%; border-radius: 999px; background: #000; z-index: 3; }
 
@@ -394,7 +395,8 @@
 @keyframes heroGlow { to { transform: scale(1.08) translate(3%, -2%); opacity: .8; } }
 .hero-lap { --w: min(90cqw, 130cqh); position: absolute; left: 0; top: 12%; z-index: 1; }
 .hero-phn { --h: min(74cqh, 52cqw); position: absolute; right: 0; bottom: 0; z-index: 3; transform: translateZ(40px); animation: heroFloat 7s ease-in-out infinite; }
-@keyframes heroFloat { 50% { margin-bottom: 12px; } }
+/* Float with `translate` (no layout each frame; margin animation made Safari re-size the phone). */
+@keyframes heroFloat { 50% { translate: 0 -12px; } }
 .hero-lap .dm-roombar, .hero-phn .dm-roombar { font-size: 11px; }
 .dm-scene.loop .sun { animation: heroSun 10s ease-in-out infinite alternate; }
 @keyframes heroSun { from { transform: translate(-50%, -62%); } to { transform: translate(-50%, -30%); } }
@@ -415,7 +417,7 @@
 .hero-chip.sync .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mint); animation: lpPulse 1.8s ease-out infinite; box-shadow: 0 0 0 0 rgba(182,221,207,.6); }
 .hero-chip.who { left: 4%; bottom: 4%; font-weight: 500; color: var(--muted); padding: 6px 14px 6px 6px; animation: heroBob 7s ease-in-out -3s infinite; }
 .hero-chip.who .dm-face + .dm-face { margin-left: -12px; }
-@keyframes heroBob { 50% { margin-top: -8px; } }
+@keyframes heroBob { 50% { translate: 0 -8px; } }
 .hero-hearts { position: absolute; left: 80%; top: 52%; z-index: 4; pointer-events: none; }
 .hero-hearts span { position: absolute; font-size: 18px; opacity: 0; animation: heroHeart 5s ease-out infinite; animation-delay: calc(var(--i) * 1s); left: calc(var(--i) * 9px - 18px); }
 @keyframes heroHeart { 0% { opacity: 0; transform: translateY(0) scale(.6); } 15% { opacity: 1; } 100% { opacity: 0; transform: translateY(-140px) translateX(calc(var(--i) * 6px - 12px)) scale(1.1); } }
