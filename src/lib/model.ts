@@ -6,7 +6,11 @@ export type Playback = { videoId: string; playing: boolean; position: number; up
 export type QueueItem = { id: string; videoId: string; title: string; source: 'manual' | 'playlist'; addedBy?: string };
 /** Message status per member: `d` newest chat message their app downloaded, `r` newest one they have seen. */
 export type Receipts = Record<string, { d: number; r: number }>;
-export type Room = { theme?: string; receipts?: Receipts; volume?: number; e2eCursor?: number; queue?: QueueItem[]; updateCursor?: number; playlistVersion?: number; goalsVersion?: number; code: string; name: string; hostId: string; members: Person[]; requests: Person[]; messages: Message[]; playback: Playback | null };
+/** A call going on in the room right now (who's in it), so people can join later. */
+export type LiveCall = { id: string; video: boolean; title: string; people: { id: string; name: string }[] };
+/** Live games on right now ("Kabir started Scribble · Join"). `players` = ids with the game open. */
+export type LiveGames = { scribble: { id: string; by: string; byName: string; players: string[] } | null; td: { id: string; by: string; byName: string; players: string[] } | null };
+export type Room = { games?: LiveGames | null; call?: LiveCall | null; theme?: string; receipts?: Receipts; volume?: number; e2eCursor?: number; queue?: QueueItem[]; updateCursor?: number; playlistVersion?: number; goalsVersion?: number; code: string; name: string; hostId: string; members: Person[]; requests: Person[]; messages: Message[]; playback: Playback | null };
 export type Track = { videoId: string; title: string };
 export type Playlist = { id: string; name: string; scope: 'personal' | 'room'; ownerId: string; roomCode: string | null; tracks: Track[] };
 export type Session = Person & { token: string };

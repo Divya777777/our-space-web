@@ -9,6 +9,7 @@ import { usePip, useWantPip } from '../lib/pip';
 import { useSpace } from '../lib/space';
 import { actionableSignals } from '../lib/callProtocol';
 import type { CallPeer, CallSignal } from '../lib/types';
+import type { LiveCall } from '../lib/model';
 import { Avatar, IconButton, firstName, useToast } from './ui';
 import { Icon } from './Icon';
 
@@ -22,14 +23,18 @@ type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOf
  * peer-to-peer data channel. Phones ignore what they don't know. */
 export type PartyMessage = { w: 'party' } & Record<string, unknown>;
 type PartyListener = (msg: PartyMessage, from: { id: string; name: string }) => void;
-type Controls = { activeCode?: string; liveWith: number; phase: Phase; start: (code: string, members: CallPeer[], video: boolean, title: string) => void; open: () => void;
+type Controls = { activeCode?: string; activeId?: string; liveWith: number; phase: Phase; start: (code: string, members: CallPeer[], video: boolean, title: string) => void; open: () => void;
+  /** Join a call that's already going on in the room (it rang before you were here). */ join: (code: string, live: LiveCall) => void;
+  /** Everyone's video while connected (you first), for the faces grid in games. */ faces: Face[]; cameraOff: boolean; toggleCamera: () => void; video: boolean;
+  /** A game is open with the faces grid: the small floating call pill steps aside. */ setInGame: (on: boolean) => void;
   /** Send to everyone connected on the call; returns how many received it. */ sendParty: (msg: PartyMessage) => number; onParty: (fn: PartyListener) => () => void;
   /** Collapse the call into the room (or picture-in-picture), e.g. while watching on another site. */ minimize: () => void;
   /** Float the call above other apps now (call from a click). Safari / older Firefox: the other person's video. */ floatCall: () => Promise<boolean>; canFloat: boolean;
   /** For the room header: the call's own controls live there, so no pop-up covers the page. */ muted: boolean; toggleMute: () => void; hangup: () => void; status: string;
   /** The room page showing the call's controls in its header (then the floating pill hides). */ setDocked: (code: string | null) => void };
 const partyListeners = new Set<PartyListener>();
-const CallContext = createContext<Controls>({ liveWith: 0, phase: 'idle', start: () => {}, open: () => {}, sendParty: () => 0, onParty: () => () => {}, minimize: () => {}, floatCall: async () => false, canFloat: false, muted: false, toggleMute: () => {}, hangup: () => {}, status: '', setDocked: () => {} });
+export type Face = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; self?: boolean };
+const CallContext = createContext<Controls>({ faces: [], cameraOff: true, toggleCamera: () => {}, video: false, setInGame: () => {}, liveWith: 0, phase: 'idle', start: () => {}, join: () => {}, open: () => {}, sendParty: () => 0, onParty: () => () => {}, minimize: () => {}, floatCall: async () => false, canFloat: false, muted: false, toggleMute: () => {}, hangup: () => {}, status: '', setDocked: () => {} });
 export const useCall = () => useContext(CallContext);
 /** Microphone settings. `exact` when the person just picked it (fail loudly); `ideal` at call start (fall back quietly). */
 function micConstraints(id: string, exact: boolean): MediaTrackConstraints {
@@ -104,6 +109,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     stream.current?.getTracks().forEach(t => t.stop()); stream.current = null;
     setLocal(null); setPeerList([]); setCameraOff(true); setMuted(false); setElapsed(0); setError(message);
     mediaState.current = { cameraOff: true, muted: false };
+    if (previous && !wasRinging) void latest.current.callLive(previous.code, { callId: previous.id, leave: true });
     if (!notify || !previous) return;
     if (wasRinging) { void sendTo(previous.starter.id, 'reject', { reason: 'declined' }, previous).catch(() => {}); return; }
     everyone.forEach(id => { void sendTo(id, 'end', {}, previous).catch(() => {}); });
@@ -116,6 +122,14 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     return () => clearTimeout(t);
   }, [phase]);
   useEffect(() => { if (phase !== 'connected' && phase !== 'reconnecting') return; const t = setInterval(() => setElapsed(v => v + 1), 1000); return () => clearInterval(t); }, [phase]);
+  // While connected, tell the room "I'm in this call" so people who arrive later can see it and join.
+  useEffect(() => {
+    if (phase !== 'connected' && phase !== 'reconnecting') return;
+    const c = callRef.current; if (!c) return;
+    const beat = () => { void latest.current.callLive(c.code, { callId: c.id, video: c.video, title: c.title }); };
+    beat(); const t = setInterval(beat, 15000);
+    return () => clearInterval(t);
+  }, [phase, call?.id]);
   // Closing the tab hangs up properly.
   useEffect(() => { const bye = () => { if (callRef.current) finishRef.current(); }; window.addEventListener('pagehide', bye); return () => window.removeEventListener('pagehide', bye); }, []);
 
@@ -238,6 +252,23 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         maybeEnd('No answer. Try again when they’re free.');
       }, 45000);
     } catch (e) { if (callRef.current === target && phaseRef.current !== 'connected') finish(true, (e as Error).message || 'Could not start the call.'); }
+  }
+  /** Join a call that is already going on: say hello to everyone in it; each of them connects back (the lower ID
+   *  sends the offer), exactly as when someone answers a group call late. */
+  async function join(code: string, info: LiveCall) {
+    if (callRef.current) { if (callRef.current.id === info.id) setExpanded(true); else toast('Hang up this call first to join the other one.', { tone: 'info' }); return; }
+    const me = latest.current.user;
+    const people = info.people.filter(p => p.id !== me.id && !isBlockedId(blockedNow(), p.id));
+    if (!people.length) { toast('That call just ended.', { tone: 'info' }); return; }
+    const target: ActiveCall = { code, id: info.id, video: info.video, title: info.title, members: people, starter: people[0], mine: false };
+    live.current.clear(); helloed.current.clear();
+    select(target); transition('connecting'); setExpanded(true); setError('');
+    try {
+      if (!(await prepare(target))) return;
+      if (callRef.current !== target) return;
+      for (const p of people) { helloed.current.add(p.id); void sendTo(p.id, 'hello', {}, target).catch(() => {}); }
+      setTimeout(() => { if (callRef.current === target && !peers.current.size) finish(false, 'That call has ended.'); }, 20000);
+    } catch (e) { if (callRef.current === target) finish(true, (e as Error).message || 'Could not join the call.'); }
   }
   async function accept() {
     const target = callRef.current; if (!target || phaseRef.current !== 'incoming') return;
@@ -397,6 +428,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   // expanded = everyone including you.
   const [floatBig, setFloatBig] = useState(false);
   const [docked, setDocked] = useState<string | null>(null);
+  const [inGame, setInGame] = useState(false);
   // Full call view, 1:1 video: tap the small picture to make it the big one (yours or theirs).
   const [selfBig, setSelfBig] = useState(false);
   useEffect(() => { if (!call) setSelfBig(false); }, [call]);
@@ -451,7 +483,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
 
   const sendParty = (msg: PartyMessage) => { const text = JSON.stringify(msg); let n = 0; for (const p of peers.current.values()) if (p.channel?.readyState === 'open') { try { p.channel.send(text); n++; } catch { /* closing */ } } return n; };
   const onParty = (fn: PartyListener) => { partyListeners.add(fn); return () => { partyListeners.delete(fn); }; };
-  return <CallContext.Provider value={{ activeCode: call?.code, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false), floatCall, canFloat, muted, toggleMute, hangup: () => finish(), status, setDocked }}>
+  return <CallContext.Provider value={{ faces: connected ? [{ id: SELF, name: space.user.name, stream: local, cameraOff, muted, self: true }, ...others.map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted }))] : [], cameraOff, toggleCamera: () => { void toggleCamera(); }, video: !!call?.video, setInGame, activeCode: call?.code, activeId: call?.id, join: (c, l) => { void join(c, l); }, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false), floatCall, canFloat, muted, toggleMute, hangup: () => finish(), status, setDocked }}>
     {call && <video ref={floatSrc} className="float-src" muted playsInline autoPlay aria-hidden="true" />}
     {children}
     {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} sinkId={speakerId} />)}
@@ -491,7 +523,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       })()}
       <div className="call-controls"><div className="glass">{controls}</div></div>
     </div>}
-    {call && phase !== 'incoming' && !expanded && !inPip && (call.video || docked !== call.code) && <MiniCall others={others} spotId={pinned && pinned !== SELF ? pinned : speaker} onPin={setPinned} self={local && !cameraOff ? local : null} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
+    {call && phase !== 'incoming' && !expanded && !inPip && !inGame && (call.video || docked !== call.code) && <MiniCall others={others} spotId={pinned && pinned !== SELF ? pinned : speaker} onPin={setPinned} self={local && !cameraOff ? local : null} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
       {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
       {!pip.supported && canFloat && <IconButton size="sm" icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
       <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={() => finish()} />
@@ -514,6 +546,33 @@ export function CallProvider({ children }: React.PropsWithChildren) {
 type Layout = 'auto' | 'grid' | 'speaker';
 /** Pin value meaning "my own picture" (picture-in-picture lets you make yourself the big one). */
 const SELF = '__self';
+/** Live games on a call: everyone's face in a grid above the game, with mute / camera / hang up, so it feels like
+ *  playing together in one room instead of the call hiding in a corner. */
+export function GameFaces() {
+  const c = useContext(CallContext);
+  const { setInGame } = c; const on = c.faces.length > 1;
+  useEffect(() => { if (!on) return; setInGame(true); return () => setInGame(false); }, [on, setInGame]);
+  if (!on) return null;
+  const n = c.faces.length;
+  return <div className={`game-faces n${Math.min(n, 6)}`} role="group" aria-label="Everyone on the call">
+    <div className="game-faces-grid">{c.faces.map(f => <GameFace key={f.id} f={f} />)}</div>
+    <div className="game-faces-bar">
+      <span className="tiny muted row gap-4"><span className="live-dot" />{c.status}</span>
+      <span className="grow" />
+      <IconButton size="sm" icon={c.muted ? 'micOff' : 'mic'} variant={c.muted ? 'on' : undefined} label={c.muted ? 'Unmute' : 'Mute'} onClick={c.toggleMute} />
+      {c.video && <IconButton size="sm" icon={c.cameraOff ? 'videoOff' : 'video'} variant={c.cameraOff ? 'on' : undefined} label={c.cameraOff ? 'Turn camera on' : 'Turn camera off'} onClick={c.toggleCamera} />}
+      <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={c.hangup} />
+    </div>
+  </div>;
+}
+function GameFace({ f }: { f: Face }) {
+  const show = !!f.stream && !f.cameraOff && f.stream.getVideoTracks().length > 0;
+  const speaking = useSpeaking(f.self ? null : f.stream, !f.muted);
+  return <div className={`game-face ${speaking ? 'speaking' : ''} ${f.self ? 'self' : ''}`}>
+    {show ? <VideoEl stream={f.stream!} muted /> : <span className="center" style={{ position: 'absolute', inset: 0 }}><Avatar name={f.name} size={44} /></span>}
+    <span className="game-face-name">{f.self ? 'You' : firstName(f.name)}{f.muted && <Icon name="micOff" size={12} />}</span>
+  </div>;
+}
 export function Stage({ others, connected, video, title, status, ringing, layout = 'auto', pinned = null, onPin, speaker = null }: { others: PeerView[]; connected: boolean; video: boolean; title: string; status: string; ringing: CallPeer[]; layout?: Layout; pinned?: string | null; onPin?: (id: string | null) => void; speaker?: string | null }) {
   if (!connected || !others.length) return <div className="call-stage"><div className="col gap-16" style={{ alignItems: 'center' }}>
     <div className="stack ring">{(others.length ? others : ringing).slice(0, 4).map(p => <Avatar key={p.id} name={p.name} size={104} />)}</div>

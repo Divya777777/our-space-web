@@ -6,7 +6,7 @@ import { ChatItem, fileUrl } from '../lib/chatStore';
 import { isBlockedId, useBlocked } from '../lib/safety';
 import { Icon } from './Icon';
 import { LinkSheet } from './LinkSheet';
-import { IconButton, Notice, firstName, useToast } from './ui';
+import { IconButton, Notice, firstName, useConfirm, useToast } from './ui';
 
 const time = (t: number) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const dayLabel = (t: number) => { const d = new Date(t); const today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1); return d.toDateString() === today.toDateString() ? 'Today' : d.toDateString() === y.toDateString() ? 'Yesterday' : d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }); };
@@ -24,6 +24,7 @@ const STATUS_LABEL: Record<Status, string> = { sent: 'Sent', delivered: 'Deliver
 export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; onReport: (userId: string, text: string) => void }) {
   const space = useSpace();
   const toast = useToast();
+  const confirm = useConfirm();
   const blocked = useBlocked(space.api);
   const [text, setText] = useState('');
   const [progress, setProgress] = useState<string>('');
@@ -120,7 +121,7 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
         const showName = i.from !== space.user.id && (i.from !== lastFrom || showDay); lastFrom = i.from;
         return <div key={i.id} style={{ display: 'contents' }}>
           {showDay && <p className="tiny quiet" style={{ textAlign: 'center', margin: '10px 0 4px' }}>{day}</p>}
-          <Message item={i} names={room.members} myId={space.user.id} onReplyPrivately={canPrivate && i.from !== space.user.id && reachable.some(m => m.id === i.from) ? () => setPrivateTo(i.from) : undefined} status={i.from === space.user.id && !i.pending && !i.failed && /^\d+$/.test(i.id) ? statusOf(Number(i.id), others, room.receipts) : null} mine={i.from === space.user.id} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)} />
+          <Message item={i} names={room.members} myId={space.user.id} onReplyPrivately={canPrivate && i.from !== space.user.id && reachable.some(m => m.id === i.from) ? () => setPrivateTo(i.from) : undefined} status={i.from === space.user.id && !i.pending && !i.failed && /^\d+$/.test(i.id) ? statusOf(Number(i.id), others, room.receipts) : null} mine={i.from === space.user.id} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)} onDelete={i.pending ? undefined : async () => { if (await confirm({ title: i.kind === 'image' ? 'Delete this photo for you?' : i.kind === 'file' ? 'Delete this file for you?' : 'Delete this message for you?', body: 'It’s removed from this device only. Everyone else in the room still has it.', confirmLabel: 'Delete for me', danger: true })) chat.deleteForMe(i.id); }} />
         </div>;
       })}
       <div ref={end} />
@@ -163,7 +164,7 @@ function photoSize(w?: number, h?: number): React.CSSProperties | undefined {
   const k = Math.min(260 / w, 260 / h, 1);
   return { width: Math.round(w * k), height: Math.round(h * k) };
 }
-function Message({ item, status, mine, showName, onReport, onDismiss, names, myId, onReplyPrivately }: { item: ChatItem; status: Status | null; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void; names: { id: string; name: string }[]; myId: string; onReplyPrivately?: () => void }) {
+function Message({ item, status, mine, showName, onReport, onDismiss, onDelete, names, myId, onReplyPrivately }: { item: ChatItem; status: Status | null; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void; onDelete?: () => void; names: { id: string; name: string }[]; myId: string; onReplyPrivately?: () => void }) {
   const [url, setUrl] = useState('');
   useEffect(() => { if (item.file) void fileUrl(item.file.key).then(setUrl); }, [item.file]);
   const privateLabel = item.to?.length ? (mine ? `Private to ${item.to.map(id => firstName(names.find(m => m.id === id)?.name || 'them')).join(', ')}` : item.to.includes(myId) ? 'Private · only you' : 'Private') : '';
@@ -174,6 +175,6 @@ function Message({ item, status, mine, showName, onReport, onDismiss, names, myI
       : item.kind === 'file' && item.file ? <a className="bubble row gap-8" href={url || undefined} download={item.file.name} style={{ color: 'inherit' }}><Icon name="file" size={18} /><span className="ellipsis" style={{ maxWidth: 200 }}>{item.file.name}</span><span className="tiny" style={{ opacity: .7 }}>{(item.file.size / 1e6).toFixed(1)} MB</span><span className="file-save"><Icon name="download" size={14} />Save</span></a>
         : <div className="bubble">{item.text}</div>}
     {onReplyPrivately && <button className="pm-reply tiny" onClick={onReplyPrivately}>Reply privately</button>}
-    <span className="tiny quiet" style={{ padding: '0 6px' }}>{item.failed ? <button className="rose" onClick={onDismiss}>Not sent · remove</button> : item.pending ? 'Sending…' : <span className="row" style={{ gap: 3, display: 'inline-flex', alignItems: 'center' }}>{time(item.at)}{status && <span title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} style={{ display: 'inline-flex', color: status === 'read' ? '#8EC5FF' : undefined }}><Icon name={status === 'sent' ? 'check' : 'checks'} size={14} stroke={2} /></span>}</span>}</span>
+    <span className="tiny quiet" style={{ padding: '0 6px' }}>{item.failed ? <button className="rose" onClick={onDismiss}>Not sent · remove</button> : item.pending ? 'Sending…' : <span className="row" style={{ gap: 3, display: 'inline-flex', alignItems: 'center' }}>{time(item.at)}{status && <span title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} style={{ display: 'inline-flex', color: status === 'read' ? '#8EC5FF' : undefined }}><Icon name={status === 'sent' ? 'check' : 'checks'} size={14} stroke={2} /></span>}{onDelete && <button className="msg-del" onClick={onDelete} aria-label="Delete for me" title="Delete for me"><Icon name="trash" size={13} /></button>}</span>}</span>
   </div>;
 }

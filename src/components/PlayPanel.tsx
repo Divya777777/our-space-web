@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSpace } from '../lib/space';
 import { GamesApi, Hub, QuizAsk, QuizQuestion, QuizState, ScribbleView, Stroke, TdView, Turn, liveGames } from '../lib/games';
-import { useCall } from './Call';
+import { GameFaces, useCall } from './Call';
 import { Avatar, Button, Notice, Sheet, ago, firstName, useToast } from './ui';
 import { Icon, IconName } from './Icon';
 
@@ -30,7 +30,7 @@ function usePoll<T>(load: () => Promise<T>, ms: number, on = true) {
   return [data, setData, refresh] as const;
 }
 
-export function PlayPanel({ code, onShare }: { code: string; onShare: (text: string) => Promise<void> }) {
+export function PlayPanel({ code, onShare, launch }: { code: string; onShare: (text: string) => Promise<void>; /** Open a live game straight away ("Join" on the game invite). */ launch?: { game: 'scribble' | 'td'; key: number } | null }) {
   const space = useSpace();
   const call = useCall();
   const toast = useToast();
@@ -43,6 +43,7 @@ export function PlayPanel({ code, onShare }: { code: string; onShare: (text: str
   const partner = hub?.partner?.name ? firstName(hub.partner.name) : 'them';
   const refresh = () => { void api.hub().then(setHub).catch(() => {}); };
   useEffect(() => { if ((open === 'td' || open === 'live') && !live) { setOpen(null); toast('The call ended, so the game closed.'); } }, [open, live, toast]);
+  useEffect(() => { if (launch && live) setOpen(launch.game === 'td' ? 'td' : 'live'); }, [launch?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const room = space.rooms.find(r => r.code === code);
   const callRoom = () => { const others = (room?.members || []).filter(m => m.id !== space.user.id); if (!others.length) { toast('Invite someone to this room first.'); return; } call.start(code, others, false, others.length > 1 ? room?.name || 'Room' : others[0].name); };
   const scribble = async () => { if (!live) { setOpen('draw'); return; } try { await api.scribbleAction({ action: 'start' }); setOpen('live'); } catch (e) { toast(nice(e), { tone: 'error' }); } };
@@ -113,18 +114,22 @@ function LiveScribble({ api, onClose }: { api: GamesApi; onClose: () => void }) 
   const [view, setView] = usePoll<ScribbleView | null>(useCallback(() => api.scribble(), [api]), 900);
   const [color, setColor] = useState(COLORS[0]); const [size, setSize] = useState(5);
   const act = async (body: Record<string, unknown>) => { try { setView(await api.scribbleAction(body)); } catch (e) { toast(nice(e), { tone: 'error' }); } };
+  // Closing with the X: you leave the game (when everyone has left, it stops by itself).
+  const leave = () => { void api.scribbleAction({ action: 'leave' }).catch(() => {}); onClose(); };
   if (view === undefined) return <Sheet title="Scribble" wide onClose={onClose}><p className="muted">Getting the canvas ready…</p></Sheet>;
   if (!view) return <Sheet title="Scribble" wide onClose={onClose}><p className="muted">This game has ended.</p><Button onClick={() => void act({ action: 'start' })}>Start a new game</Button></Sheet>;
   const myId = space.user.id; const drawer = view.drawer === myId; const myPts = view.pts[myId] || 0;
   const nameFor = (id: string) => space.rooms.flatMap(r => r.members).find(m => m.id === id)?.name || view.guesses.find(g => g.by === id)?.name || (view.drawer === id ? view.drawerName : 'Player');
   const endGame = <Button variant="secondary" icon="x" onClick={() => { void act({ action: 'end' }); onClose(); }}>End game for everyone</Button>;
-  if (view.phase === 'over') return <Sheet title="Scribble" sub="Game over" wide onClose={onClose}>
+  if (view.phase === 'over') return <Sheet title="Scribble" sub="Game over" wide onClose={leave}>
+    <GameFaces />
     <div className="inset col gap-8" style={{ padding: 28, alignItems: 'center' }}><span className="gold"><Icon name="trophy" size={40} /></span><p className="title">{Object.entries(view.pts).length ? Object.entries(view.pts).sort((a, b) => b[1] - a[1]).map(([id, v]) => `${firstName(id === myId ? space.user.name : nameFor(id))} ${v}`).join(' · ') : `${firstName(space.user.name)} ${myPts}`}</p><p className="small muted">Points are added to this month’s scores.</p></div>
     <Button onClick={() => void act({ action: 'start' })}>{drawer ? 'Play again' : 'Draw the next game'}</Button><Button variant="secondary" onClick={() => { void act({ action: 'end' }); onClose(); }}>Back to games</Button>
   </Sheet>;
   const solver = view.guesses.find(g => g.ok);
   const next = (view.phase === 'solved' || view.phase === 'timeup') && <Button size="sm" onClick={() => void act({ action: 'next' })}>{view.round >= view.rounds ? 'See results' : 'Next round'}</Button>;
-  return <Sheet title="Scribble" sub={`Round ${view.round} of ${view.rounds} · ${drawer ? 'you draw' : `${firstName(view.drawerName)} draws`}`} wide onClose={onClose} footer={endGame}>
+  return <Sheet title="Scribble" sub={`Round ${view.round} of ${view.rounds} · ${drawer ? 'you draw' : `${firstName(view.drawerName)} draws`}`} wide onClose={leave} footer={endGame}>
+    <GameFaces />
     <div className="row between">{drawer || view.word ? <div><p className="tiny muted">{drawer ? 'Your word · only you see it' : 'The word was'}</p><p className="title" style={{ letterSpacing: '.08em' }}>{(view.word || '').toUpperCase()}</p></div> : <div className="letters">{Array.from({ length: view.length }, (_, i) => <span key={i} />)}</div>}
       <Countdown ms={view.msLeft} running={(view.phase === 'drawing' || view.phase === 'guessing') && view.strokes.length > 0} /></div>
     {(view.players?.length ?? 0) > 2 && <div className="scoreboard" aria-label="Players">
@@ -185,10 +190,14 @@ function TruthDare({ api, onClose }: { api: GamesApi; onClose: () => void }) {
     try { setView(await api.tdAction(body)); try { call.sendParty({ w: 'party', kind: 'game-refresh', game: 'td' }); } catch { /* not on a call */ } }
     catch (e) { toast(nice(e), { tone: 'error' }); }
   };
+  const leave = () => { void api.tdAction({ action: 'leave' }).then(() => { try { call.sendParty({ w: 'party', kind: 'game-refresh', game: 'td' }); } catch { /* not on a call */ } }).catch(() => {}); onClose(); };
   if (view === undefined) return <Sheet title="Truth or Dare" onClose={onClose}><p className="muted">Shuffling the cards…</p></Sheet>;
   if (!view) return <Sheet title="Truth or Dare" onClose={onClose}><Button onClick={() => void act({ action: 'start' })}>Start a new game</Button></Sheet>;
   const myId = space.user.id; const mine = view.turn === myId; const asked = view.spicyAsked.includes(myId); const card = view.card;
-  return <Sheet title="Truth or Dare" sub="Best on a call. Nothing is recorded." onClose={onClose} footer={<Button variant="secondary" onClick={() => { void act({ action: 'end' }); onClose(); }}>End game</Button>}>
+  const askerMe = card?.asker === myId;
+  const asker = card?.askerName && card.asker ? firstName(card.askerName) : '';
+  return <Sheet title="Truth or Dare" sub="Best on a call. Nothing is recorded." wide onClose={leave} footer={<Button variant="secondary" onClick={() => { void act({ action: 'end' }); onClose(); }}>End game</Button>}>
+    <GameFaces />
     <div className="chips">{(['sweet', 'fun'] as const).map(k => <button key={k} className={`chip ${view.decks[k] ? 'on' : ''}`} onClick={() => void act({ action: 'deck', deck: k })}>{k === 'sweet' ? 'Sweet' : 'Fun'}</button>)}
       <button className={`chip ${view.spicyOn ? 'on' : ''}`} onClick={() => void act({ action: 'spicy' })}>{!view.spicyOn && <Icon name="lock" size={14} />}{view.spicyOn ? 'Spicy' : asked ? 'Waiting for the others' : 'Spicy · 18+'}</button></div>
     {!asked && view.spicyAsked.length > 0 && !view.spicyOn && <div className="inset row" style={{ padding: 12 }}><span className="grow small">Someone asked to unlock Spicy (18+). Flirty, never explicit.</span><Button size="sm" onClick={() => void act({ action: 'spicy' })}>Say yes</Button></div>}
@@ -196,7 +205,10 @@ function TruthDare({ api, onClose }: { api: GamesApi; onClose: () => void }) {
       {(view.players?.filter(p => p.here).length ?? 0) > 2 && <p className="tiny muted">Playing: {view.players!.filter(p => p.here).map(p => p.id === myId ? 'You' : firstName(p.name)).join(', ')} · turns go around the circle</p>}
       {!card ? <><p className="small muted">{mine ? 'Your turn' : `${firstName(view.turnName)}’s turn`}</p><p className="title">{mine ? 'Truth or dare?' : `${firstName(view.turnName)} is choosing…`}</p>
         {mine && <div className="row gap-8"><Button className="grow" onClick={() => void act({ action: 'pick', kind: 'truth' })}>Truth</Button><Button className="grow" variant="secondary" onClick={() => void act({ action: 'pick', kind: 'dare' })}>Dare</Button><Button variant="ghost" onClick={() => void act({ action: 'pick', kind: 'random' })}>Surprise me</Button></div>}</>
-        : <><p className="small" style={{ color: card.kind === 'truth' ? 'var(--lav)' : 'var(--rose)', fontWeight: 600 }}>{card.kind === 'truth' ? 'Truth' : 'Dare'} · {card.deck} · for {mine ? 'you' : firstName(view.turnName)}</p><p className="title" style={{ fontSize: 24 }}>{card.text}</p>
+        : <><p className="small" style={{ color: card.kind === 'truth' ? 'var(--lav)' : 'var(--rose)', fontWeight: 600 }}>{card.kind === 'truth' ? 'Truth' : 'Dare'} · {card.deck === 'group' ? 'everyone' : card.deck} · for {mine ? 'you' : firstName(view.turnName)}</p>
+          {asker && <p className="td-asker row gap-8"><Avatar name={card.askerName!} size={26} /><span>{askerMe ? <>You ask {mine ? 'yourself' : firstName(view.turnName)}</> : mine ? <><b>{asker}</b> asks you</> : <><b>{asker}</b> asks {firstName(view.turnName)}</>}</span></p>}
+          <p className="title" style={{ fontSize: 24 }}>{card.text}</p>
+          {asker && !askerMe && card.deck !== 'group' && <p className="tiny muted">{/\b(us|our)\b/i.test(card.text) ? `“Us” means ${mine ? 'you' : firstName(view.turnName)} and ${asker}.` : /\b(me|my|mine)\b/i.test(card.text) ? `“Me” means ${asker}.` : ''}</p>}
           {mine ? <div className="row gap-8"><Button onClick={() => void act({ action: 'done' })}>Done — next turn</Button><Button variant="secondary" icon="swap" disabled={!(view.swaps[myId] > 0)} onClick={() => void act({ action: 'swap' })}>Swap ({view.swaps[myId] ?? 0})</Button></div> : <p className="small muted">Waiting for {firstName(view.turnName)} to finish…</p>}</>}
     </div>
   </Sheet>;

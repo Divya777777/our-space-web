@@ -8,6 +8,7 @@ export type Goal = {
   pending: boolean; invited: boolean; me: number | null; them: number | null; cheered: boolean; cheeredMe: boolean; mine: boolean;
   /** Everyone the goal is for (servers with group goals): progress today, null until they join. */
   people?: GoalPerson[];
+  /** Someone's own goal: whose it is (groups show everyone's own goals). */ ownerId?: string; ownerName?: string;
 };
 export type GoalPerson = { id: string; name: string; joined: boolean; value: number | null; cheeredByMe?: boolean };
 export type GoalsToday = { day: string; partner: { id: string; name: string } | null; goals: Goal[] };

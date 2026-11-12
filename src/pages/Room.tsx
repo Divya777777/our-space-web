@@ -25,11 +25,18 @@ import { Star } from '../components/Brand';
 import { RoomThemeLayer, Scene, THEMES, ThemePicker, themeId } from '../components/RoomTheme';
 import { WorldEmpty, WorldLayer, WorldPerch, isWorld } from '../components/WorldThemes';
 import { InstallSheet, PartyCard, PartyInvite, StreamTiles } from '../components/StreamParty';
-import { SERVICES, Service, availability, downloadTestVersion, extension, needsUpdate, openStore, useWatchParty } from '../lib/watchParty';
+import { SERVICES, Service, availability, downloadTestVersion, isDesktopSafari, extension, needsUpdate, openStore, useWatchParty } from '../lib/watchParty';
 
 type Tab = 'chat' | 'next' | 'people' | 'goals' | 'play';
 const TABS: Tab[] = ['chat', 'next', 'people', 'goals', 'play'];
 
+/** "Asha", "Asha and Kabir", "Asha, Kabir and 2 more". */
+function listNames(names: string[]) {
+  if (names.length <= 1) return names[0] || '';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+}
 export default function RoomPage() {
   const { code = '' } = useParams();
   const [params, setParams] = useSearchParams();
@@ -124,6 +131,9 @@ export default function RoomPage() {
   // Netflix / Prime Video together (web + extension), synced over the call.
   const watch = useWatchParty(call, space.user.name);
   const [installFor, setInstallFor] = useState<{ service: Service; host: boolean } | null>(null);
+  // Game invites you've answered or dismissed (by game id), and a game to open straight away on the Play tab.
+  const [gameSeen, setGameSeen] = useState<string[]>([]);
+  const [launch, setLaunch] = useState<{ game: 'scribble' | 'td'; key: number } | null>(null);
   const [liveIn, setLiveIn] = useState<object | null>(null);
   const adWait = useRef('');
   const [nudge, setNudge] = useState(0);
@@ -161,6 +171,8 @@ export default function RoomPage() {
     if (where.ok === 'maybe') toast(where.note, { tone: 'info' });
     if (!others.length) { toast('Invite someone to this room first — then watch together.', { tone: 'error' }); return; }
     // Not installed yet: open the store window on this same click (browsers block it later), and wait.
+    // Safari on a Mac can't add the helper: explain and offer the room link instead of downloading anything.
+    if (isDesktopSafari) { setInstallFor({ service, host }); return; }
     if (!extension.version) { if (!openStore()) downloadTestVersion(); setInstallFor({ service, host }); return; }
     // An older extension doesn't know this service yet: get the new version (the store updates by itself; the test
     // version is downloaded again).
@@ -207,6 +219,34 @@ export default function RoomPage() {
   const pipPlayer = floating && gate.playback ? <YouTubePlayer key={`pip-${code}`} playback={gate.playback} events={{ onStarted: () => setLiveIn(pip.slots) }} follow={mainTime} /> : null;
 
   const theme = themeId(room.theme);
+  // Someone started a live game while you're on this room's call (on any tab): "Kabir started Scribble · Join".
+  const onThisCall = call.activeCode === code && call.liveWith > 0;
+  const g = room.games;
+  const gameOn = onThisCall && g ? ([g.scribble && { kind: 'scribble' as const, ...g.scribble }, g.td && { kind: 'td' as const, ...g.td }].find(x => x && x.by !== space.user.id && !x.players.includes(space.user.id)) || null) : null;
+  const gameInvite = gameOn && !gameSeen.includes(gameOn.id) && tab !== 'play' ? gameOn : null;
+  const playing = gameInvite ? gameInvite.players.length : 0;
+  const inviteEl = gameInvite && <div className="game-invite glass" role="status">
+    <span className="game-invite-icon" style={{ background: gameInvite.kind === 'td' ? 'rgba(242,170,170,.2)' : 'rgba(200,182,255,.2)', color: gameInvite.kind === 'td' ? '#F2AAAA' : '#C8B6FF' }}><Icon name={gameInvite.kind === 'td' ? 'cards' : 'pencil'} size={20} /></span>
+    <div className="grow" style={{ minWidth: 0 }}>
+      <p className="small ellipsis" style={{ fontWeight: 650 }}>{firstName(gameInvite.byName)} started {gameInvite.kind === 'td' ? 'Truth or Dare' : 'Scribble'}</p>
+      <p className="tiny muted ellipsis">{playing > 1 ? `${playing} playing` : 'Waiting for you'} · join from here, the call carries on</p>
+    </div>
+    <Button size="sm" onClick={() => { setGameSeen(v => [...v, gameInvite.id]); setTab('play'); setLaunch({ game: gameInvite.kind, key: Date.now() }); setTimeout(() => document.getElementById('room-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>Join</Button>
+    <IconButton size="sm" icon="x" label="Not now" onClick={() => setGameSeen(v => [...v, gameInvite.id])} />
+  </div>;
+  // A call is going on in this room that you're not in (it rang before you came, or you missed it): offer to join,
+  // showing who's already in it — like WhatsApp's "Tap to join".
+  const liveCall = room.call && call.activeId !== room.call.id ? { ...room.call, people: room.call.people.filter(p => p.id !== space.user.id) } : null;
+  const joinable = liveCall && liveCall.people.length ? liveCall : null;
+  const joinBar = joinable && <div className="call-join glass" role="region" aria-label="Call going on in this room">
+    <span className="call-join-icon" aria-hidden="true"><Icon name={joinable.video ? 'video' : 'phone'} size={18} /></span>
+    <div className="stack" aria-hidden="true">{joinable.people.slice(0, 4).map(p => <Avatar key={p.id} name={p.name} size={30} />)}</div>
+    <div className="grow" style={{ minWidth: 0 }}>
+      <p className="small ellipsis" style={{ fontWeight: 650 }}>{joinable.video ? 'Video' : 'Voice'} call going on</p>
+      <p className="tiny muted ellipsis">{listNames(joinable.people.map(p => firstName(p.name)))} {joinable.people.length === 1 ? 'is' : 'are'} in it</p>
+    </div>
+    <Button size="sm" icon={joinable.video ? 'video' : 'phone'} onClick={() => call.join(code, joinable)}>Join</Button>
+  </div>;
   const top = <div className="room-top">
     <IconButton icon="back" label="Back home" onClick={() => nav('/')} />
     <div className="grow" style={{ minWidth: 0 }}>
@@ -214,7 +254,7 @@ export default function RoomPage() {
       <button className="small muted row gap-4" onClick={async () => { if (await copyText(room.code)) toast('Room code copied.', { icon: 'copy' }); }} aria-label={`Copy room code ${room.code}`}><span className="room-code">{room.code}</span> <Icon name="copy" size={13} /></button>
     </div>
     <div className="stack" aria-label={`${room.members.length} people in this room`}>{room.members.slice(0, 4).map(m => <Avatar key={m.id} name={m.name} size={34} />)}</div>
-    {others.length > 0 && !call.activeCode && <>
+    {others.length > 0 && !call.activeCode && !joinable && <>
       <IconButton icon="phone" label={others.length > 1 ? 'Voice call the room' : `Voice call ${others[0].name}`} onClick={() => call.start(code, others, false, others.length > 1 ? room.name : others[0].name)} />
       <IconButton icon="video" label={others.length > 1 ? 'Video call the room' : `Video call ${others[0].name}`} onClick={() => call.start(code, others, true, others.length > 1 ? room.name : others[0].name)} />
     </>}
@@ -236,6 +276,7 @@ export default function RoomPage() {
     {pb && <div className="ambient" aria-hidden="true"><img key={pb.videoId} src={`https://i.ytimg.com/vi/${pb.videoId}/mqdefault.jpg`} alt="" /></div>}
     {top}
     <section className="stage" aria-label="Watch together">
+      {joinBar}
       <div className="screen" ref={screen}>
         {/* The player keeps its place in the page while the video floats (moving or re-wrapping it would reload it, and a
             reloaded player can't start with sound by itself); the floating window shows a muted copy. */}
@@ -288,9 +329,10 @@ export default function RoomPage() {
         {tab === 'next' && <QueuePanel room={room} onPlay={playNow} />}
         {tab === 'people' && <PeoplePanel room={room} />}
         {tab === 'goals' && <GoalsPanel code={code} version={room.goalsVersion} />}
-        {tab === 'play' && <PlayPanel code={code} onShare={shareToChat} />}
+        {tab === 'play' && <PlayPanel code={code} onShare={shareToChat} launch={launch} />}
       </div>
     </aside>
+    {inviteEl}
     {save && <SaveSheet track={save} roomCode={code} onClose={() => setSave(null)} />}
     {menu && <Sheet title={room.name} sub={admin ? 'You’re the admin of this room.' : undefined} onClose={() => setMenu(false)}>
       <div className="col gap-8">

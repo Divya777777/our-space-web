@@ -70,6 +70,12 @@ const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
 export const isFirefox = /Firefox\//.test(ua) && !/Mobile|Android/i.test(ua);
 /** Extensions work in Chrome, Edge, Brave, Opera and Firefox on a computer. */
 export const browserSupported = isFirefox || (/Chrome\/|Chromium\//.test(ua) && !/Mobile|Android/i.test(ua));
+/** Safari on a Mac (not iPhone/iPad: an iPad also says "Macintosh" but has a touch screen). Safari can't run the
+ *  helper yet, but the services still show there, with a one-tap way to carry on in Chrome, Edge or Firefox. */
+export const isDesktopSafari = typeof navigator !== 'undefined' && /Macintosh/.test(ua) && /Safari\//.test(ua)
+  && !/Chrome\/|Chromium\/|CriOS|FxiOS|Edg\/|OPR\//.test(ua) && (navigator.maxTouchPoints || 0) < 2;
+/** Show the streaming tiles: browsers that can run the helper, plus Safari on a Mac. */
+export const showStreamTiles = browserSupported || isDesktopSafari;
 const env = import.meta.env as Record<string, string | undefined>;
 /** The store page for this browser (empty until that listing is live). */
 export const EXTENSION_URL = (isFirefox ? env.VITE_FIREFOX_EXTENSION_URL : env.VITE_EXTENSION_URL) || '';

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, IconButton, Sheet } from './ui';
 import { Icon } from './Icon';
-import { EXTENSION_URL, FEATURED, availability, Party, SERVICES, Service, TEST_ZIP, browserSupported, isFirefox, clock, closeStore, extension, openStore, useExtension } from '../lib/watchParty';
+import { EXTENSION_URL, FEATURED, availability, Party, SERVICES, Service, TEST_ZIP, browserSupported, isDesktopSafari, isFirefox, showStreamTiles, clock, closeStore, extension, openStore, useExtension } from '../lib/watchParty';
 
 function Mark({ service, size = 40 }: { service: Service; size?: number }) {
   // Our own tile mark (not the services' logos): the service name's first letters on its colour.
@@ -11,14 +11,33 @@ function Mark({ service, size = 40 }: { service: Service; size?: number }) {
   return <span className="svc-mark" style={{ width: size, height: size, fontSize: size * (len >= 3 ? .3 : .38), background: `linear-gradient(150deg, ${s.from}, ${s.to})` }} aria-hidden="true">{s.mark}</span>;
 }
 
+/** Safari on a Mac: the services need the Our Space helper, which Safari can't add yet. Copy the room link and
+ *  open it in Chrome, Edge or Firefox on the same Mac; the call and the room carry on there. */
+function SafariSheet({ name, onClose }: { name: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(window.location.href); setCopied(true); setTimeout(() => setCopied(false), 2500); } catch { window.prompt('Copy this link', window.location.href); }
+  };
+  return <Sheet title={`${name} together`} sub="Open this room in Chrome, Edge or Firefox" onClose={onClose}>
+    <p className="muted">{name} plays in sync through a small Our Space helper that Chrome, Edge, Brave, Opera and Firefox can add. Safari can’t add it yet.</p>
+    <ol className="install-steps small">
+      <li>Copy this room’s link.</li>
+      <li>Open Chrome, Edge or Firefox on this Mac and paste it. Sign in with the same Google account and you’re back in this room.</li>
+      <li>Pick {name} there. It takes about a minute the first time.</li>
+    </ol>
+    <Button onClick={copy}>{copied ? 'Link copied' : 'Copy room link'}</Button>
+    <button className="btn ghost" onClick={onClose}>Not now</button>
+  </Sheet>;
+}
+
 export function StreamTiles({ onPick }: { onPick: (s: Service) => void }) {
   const [all, setAll] = useState(false);
   const list = all ? (Object.keys(SERVICES) as Service[]) : FEATURED;
   const more = Object.keys(SERVICES).length - FEATURED.length;
   // Phones and tablets: streaming services need a computer here (or the phone app), so one quiet line instead of tiles.
-  if (!browserSupported) return <p className="stream-note small muted"><Icon name="film" size={16} />Netflix, Prime Video and more play together on a computer, or in the Our Space phone app.</p>;
+  if (!showStreamTiles) return <p className="stream-note small muted"><Icon name="film" size={16} />Netflix, Prime Video and more play together on a computer, or in the Our Space phone app.</p>;
   return <section className="stream-tiles" aria-label="Watch a streaming service together">
-    <div className="row between"><p className="h3">Also watch together on</p><span className="tiny muted">Each of you uses your own account · on a computer</span></div>
+    <div className="row between"><p className="h3">Also watch together on</p><span className="tiny muted">Each of you uses your own account · {isDesktopSafari ? 'in Chrome, Edge or Firefox' : 'on a computer'}</span></div>
     <div className="stream-row">
       {list.map(s => { const a = availability(s); return <button key={s} className={`stream-tile ${a.ok === 'no' ? 'off' : ''}`} style={{ ['--c' as string]: SERVICES[s].color, ['--g' as string]: SERVICES[s].glow }} onClick={() => onPick(s)} title={a.note || undefined}>
         <span className="stream-glow" aria-hidden="true" />
@@ -52,6 +71,7 @@ export function InstallSheet({ service, onDone, onClose }: { service: Service; o
   }, [installed, onDone]);
   const R = 54, C = 2 * Math.PI * R;
   const name = SERVICES[service].name;
+  if (isDesktopSafari) return <SafariSheet name={name} onClose={onClose} />;
   if (!browserSupported) return <Sheet title={`${name} together`} sub="Works on a computer" onClose={onClose}>
     <p className="muted">Watching {name} together works in Chrome, Edge, Brave, Opera or Firefox on a computer. On a phone, keep watching YouTube together in the app.</p>
     <Button onClick={onClose}>OK</Button>

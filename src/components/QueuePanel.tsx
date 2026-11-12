@@ -29,11 +29,13 @@ export function QueuePanel({ room, onPlay }: { room: Room; onPlay: (t: Track, co
     </div>
     <div className="col gap-8">
       <p className="h3">Playlists</p>
-      {lists.map(p => <details key={p.id} className="inset" style={{ padding: '4px 6px' }}>
+      {lists.map(p => <details key={p.id} className="inset pl-details" style={{ padding: '4px 6px' }}>
         <summary className="row" style={{ padding: '8px 8px', cursor: 'pointer', listStyle: 'none' }}>
           <Icon name={p.scope === 'room' ? 'users' : 'bookmark'} size={18} />
           <span className="grow small ellipsis" style={{ fontWeight: 600 }}>{p.name}</span><span className="tiny muted">{p.tracks.length} video{p.tracks.length === 1 ? "" : "s"}</span>
           {p.tracks.length > 0 && <IconButton size="sm" variant="accent" icon="play" label={`Play ${p.name} for everyone`} onClick={e => { e.preventDefault(); onPlay(p.tracks[0], p.tracks.slice(1)); }} />}
+          {/* Tap the row to see every video in it: the arrow says so, and turns when it's open. */}
+          <span className="pl-chev" aria-hidden="true"><Icon name="down" size={16} /></span>
         </summary>
         <div className="list" style={{ paddingBottom: 6 }}>{p.tracks.map((t, i) => <div key={t.videoId} className="list-row" style={{ padding: '6px 8px' }}>
           <img className="thumb sm" src={thumbnail(t.videoId)} alt="" loading="lazy" /><span className="grow small ellipsis">{t.title}</span>

@@ -37,6 +37,8 @@ type Space = {
   iceServers: () => Promise<IceServer[]>;
   callInbox: (after: number, cursor?: number, signal?: AbortSignal) => Promise<{ signals: CallSignal[]; cursor: number }>;
   signalCall: (code: string, to: string, type: CallSignal['type'], payload?: Record<string, unknown>) => Promise<void>;
+  /** "Still in this room's call" (every ~15 s while connected), or leave: true on hang-up. */
+  callLive: (code: string, body: { callId: string; video?: boolean; title?: string; leave?: boolean }) => Promise<void>;
 };
 const Context = createContext<Space | null>(null);
 const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
@@ -276,6 +278,7 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
     },
     callInbox: (after, cursor, signal) => request(`/calls?after=${after}${cursor === undefined ? '' : `&cursor=${cursor}`}`, undefined, undefined, signal),
     async signalCall(code, to, type, payload = {}) { await request(`/rooms/${code}/call/signal`, { to, type, payload, requestId: uid() }, undefined, undefined, true); },
+    async callLive(code, body) { await request(`/rooms/${code}/call/live`, body).catch(() => {}); },
   };
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

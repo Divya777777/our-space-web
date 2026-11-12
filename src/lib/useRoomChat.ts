@@ -53,7 +53,8 @@ export function useRoomChat(room: Room | undefined) {
       void loadChat(userId, code).then(saved => {
         if (!alive) return;
         const pending = ref.current.items.filter(i => i.pending || i.failed);
-        const next = { ...saved, cursor: Math.max(saved.cursor, ref.current.cursor), items: [...saved.items, ...pending.filter(p => !saved.items.some(i => i.id === p.id))].sort((a, b) => a.at - b.at) };
+        const hidden = new Set([...(saved.hidden || []), ...(ref.current.hidden || [])]);
+        const next = { ...saved, hidden: [...hidden], cursor: Math.max(saved.cursor, ref.current.cursor), items: [...saved.items.filter(i => !hidden.has(i.id)), ...pending.filter(p => !saved.items.some(i => i.id === p.id))].sort((a, b) => a.at - b.at) };
         ref.current = next; setState(next);
       });
     };
@@ -106,7 +107,8 @@ export function useRoomChat(room: Room | undefined) {
           }
           if (skipped) setUnreadable(n => n + skipped);
           const cursor = page.messages.length ? page.messages[page.messages.length - 1].id : ref.current.cursor;
-          commit({ ...ref.current, cursor: Math.max(cursor, ref.current.cursor), items: [...ref.current.items, ...added].sort((a, b) => a.at - b.at) });
+          const hidden = new Set(ref.current.hidden || []);
+          commit({ ...ref.current, cursor: Math.max(cursor, ref.current.cursor), items: [...ref.current.items, ...added.filter(i => !hidden.has(i.id))].sort((a, b) => a.at - b.at) });
           more = page.more && page.messages.length > 0;
         }
         tell('d');
@@ -157,8 +159,14 @@ export function useRoomChat(room: Room | undefined) {
     await deliver({ t: image ? 'image' : 'file', name, mime, size: raw.length, w, h, at, ...(squeeze ? { z: 1 } : {}), ...(to?.length ? { pm: to } : {}) }, data, { key, name, mime, size: raw.length, w, h }, onProgress);
   }
   function dismiss(id: string) { commit({ ...ref.current, items: ref.current.items.filter(i => i.id !== id) }); }
+  /** Delete a message (and its photo or file) from this device only; everyone else still has it. */
+  function deleteForMe(id: string) {
+    const item = ref.current.items.find(i => i.id === id);
+    if (item?.file?.key) void removeFile(item.file.key);
+    commit({ ...ref.current, hidden: [...(ref.current.hidden || []), id].slice(-2000), items: ref.current.items.filter(i => i.id !== id) });
+  }
   useEffect(() => { if (loaded) tell('d'); }, [loaded, tell]);
-  return { items: state.items, cursor: state.cursor, loaded, sendText, sendFile, waitingForKeys, dismiss, unreadable, markRead };
+  return { items: state.items, cursor: state.cursor, loaded, sendText, sendFile, waitingForKeys, dismiss, deleteForMe, unreadable, markRead };
 }
 
 /** Photos are resized to 1280 px JPEG like the phone app (keeps sealed messages small). */
