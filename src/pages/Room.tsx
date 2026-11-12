@@ -23,6 +23,7 @@ import { Avatar, Button, IconButton, Notice, Segments, Sheet, Skeleton, copyText
 import { Icon } from '../components/Icon';
 import { Star } from '../components/Brand';
 import { RoomThemeLayer, Scene, THEMES, ThemePicker, themeId } from '../components/RoomTheme';
+import { WorldEmpty, WorldLayer, WorldPerch, isWorld } from '../components/WorldThemes';
 import { InstallSheet, PartyCard, PartyInvite, StreamTiles } from '../components/StreamParty';
 import { SERVICES, Service, availability, downloadTestVersion, extension, needsUpdate, openStore, useWatchParty } from '../lib/watchParty';
 
@@ -226,17 +227,19 @@ export default function RoomPage() {
       <Button size="sm" variant="secondary" onClick={call.open}>Back to call</Button>
     </div>}
     <IconButton icon="dots" label="Room options" onClick={() => setMenu(true)} />
+    <WorldPerch theme={theme} />
   </div>;
 
   return <div className="room">
     <RoomThemeLayer theme={theme} />
+    <WorldLayer theme={theme} hasVideo={!!gate.playback} playing={!!gate.playback?.playing} members={room.members.length} chatCount={chat.items.length} lastMine={chat.items[chat.items.length - 1]?.from === space.user.id} />
     {pb && <div className="ambient" aria-hidden="true"><img key={pb.videoId} src={`https://i.ytimg.com/vi/${pb.videoId}/mqdefault.jpg`} alt="" /></div>}
     {top}
     <section className="stage" aria-label="Watch together">
       <div className="screen" ref={screen}>
         {/* The player keeps its place in the page while the video floats (moving or re-wrapping it would reload it, and a
             reloaded player can't start with sound by itself); the floating window shows a muted copy. */}
-        {gate.playback ? playerEl : <div className="screen-empty"><div className="col gap-16" style={{ alignItems: 'center' }}><Star size={48} glow /><p className="h2">What are we watching?</p><p className="muted small" style={{ maxWidth: 360 }}>Search below or paste a YouTube link. It plays for everyone here at the same moment.</p></div></div>}
+        {gate.playback ? playerEl : <div className="screen-empty"><div className="col gap-16" style={{ alignItems: 'center' }}>{isWorld(theme) ? <WorldEmpty theme={theme} /> : <Star size={48} glow />}<p className="h2">What are we watching?</p><p className="muted small" style={{ maxWidth: 360 }}>Search below or paste a YouTube link. It plays for everyone here at the same moment.</p></div></div>}
         {gate.playback && floating && <div className="screen-empty screen-over"><div className="col gap-16" style={{ alignItems: 'center' }}><Icon name="pip" size={40} /><p className="h3">Playing in a floating window</p><p className="muted small" style={{ maxWidth: 340, textAlign: 'center' }}>Use any other app — it stays on top. Everyone here still watches in sync.</p><Button variant="secondary" onClick={pip.close}>Bring it back here</Button></div></div>}
         {pb?.hold && pb.hold.by !== space.user.id && <div className="screen-empty screen-over ad-wait"><div className="col gap-12" style={{ alignItems: 'center', textAlign: 'center' }}>
           <span className="ad-wait-dot" aria-hidden="true" /><p className="h3">{firstName(pb.hold.name)} is watching an ad</p>
@@ -275,7 +278,7 @@ export default function RoomPage() {
     </section>
     {/* Phones: the panel sits below the video, so a small button jumps to the chat (with a dot for new messages). */}
     <button className="room-jump glass" onClick={() => { setTab('chat'); document.getElementById('room-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} aria-label={unread ? 'Open chat, new messages' : 'Open chat'}><Icon name="chat" size={18} />Chat{unread && <i />}</button>
-    <aside className="side glass" id="room-panel" aria-label="Room panel">
+    <aside className="side glass" id="room-panel" data-tab={tab} aria-label="Room panel">
       <div className="side-tabs"><Segments label="Room panel" value={tab} onChange={setTab} options={[
         { value: 'chat', label: 'Chat', dot: unread }, { value: 'next', label: 'Up next' },
         { value: 'people', label: 'People', dot: admin && room.requests.length > 0 }, { value: 'goals', label: 'Goals' }, { value: 'play', label: 'Play' },

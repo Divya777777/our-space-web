@@ -6,6 +6,7 @@ import { Goal, GoalDraft, GoalPerson, GoalsMonth, GoalsToday, TEMPLATES, done, l
 import { Avatar, Button, IconButton, Notice, Segments, Sheet, Skeleton, useConfirm, useToast } from './ui';
 import { Icon, IconName } from './Icon';
 import { GetAppPrompt } from './GetApp';
+import { roomFx } from './WorldThemes';
 
 const fmt = (n: number) => Number(n).toLocaleString();
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -77,7 +78,7 @@ export function GoalsPanel({ code, version }: { code: string; version?: number }
     if (value === before) return;
     patch(g.id, { me: value });
     if (dataRef.current) dataRef.current = { ...dataRef.current, goals: dataRef.current.goals.map(x => x.id === g.id ? { ...x, me: value } : x) };
-    if (before < g.target && value >= g.target) toast(`Done: ${g.name}`, { icon: 'check' });
+    if (before < g.target && value >= g.target) { toast(`Done: ${g.name}`, { icon: 'check' }); roomFx('celebrate'); }
     const next = entry || { value, was: before };
     next.value = value;
     if (next.timer) clearTimeout(next.timer);

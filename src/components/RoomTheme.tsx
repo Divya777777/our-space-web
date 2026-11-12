@@ -4,15 +4,19 @@
 import { CSSProperties, useEffect, useRef } from 'react';
 import { AURORA, SEA } from './sceneShaders';
 import { Icon } from './Icon';
+import { KiraScene, SpellboundScene } from './WorldThemes';
 
-export type ThemeId = 'midnight' | 'aurora' | 'golden' | 'sakura' | 'sea' | 'fireflies';
-export const THEMES: { id: ThemeId; name: string; line: string }[] = [
+export type ThemeId = 'midnight' | 'aurora' | 'golden' | 'sakura' | 'sea' | 'fireflies' | 'spellbound' | 'kirakira';
+/** `world`: a whole-room theme with its own characters (components/WorldThemes.tsx), not only a backdrop. */
+export const THEMES: { id: ThemeId; name: string; line: string; world?: boolean }[] = [
   { id: 'midnight', name: 'Midnight', line: 'The classic. Quiet and starry.' },
   { id: 'aurora', name: 'Aurora', line: 'Northern lights, rippling live.' },
   { id: 'golden', name: 'Golden hour', line: 'Soft sunbeams pouring in.' },
   { id: 'sakura', name: 'Sakura', line: 'Petals falling at dusk.' },
   { id: 'sea', name: 'Deep sea', line: 'A sunlit reef, a turtle, shoals of fish.' },
   { id: 'fireflies', name: 'Fireflies', line: 'A forest clearing after dark.' },
+  { id: 'spellbound', name: 'Spellbound', line: 'A moonlit tower library, with Wick and Page.', world: true },
+  { id: 'kirakira', name: 'Kira Kira', line: 'An anime rooftop at sunset, with Hoshi and Mochi.', world: true },
 ];
 export const themeId = (value?: string | null): ThemeId => (THEMES.some(t => t.id === value) ? value as ThemeId : 'midnight');
 
@@ -99,7 +103,8 @@ function Reef({ flip }: { flip?: boolean }) {
     <path d="M-4 200q40-20 120-10t210 10Z" fill="#FBF1D8" />
   </svg>;
 }
-export function Scene({ id }: { id: ThemeId }) {
+/** `cast`: draw the world's characters into the scene (previews). In a room they live in the room itself instead. */
+export function Scene({ id, cast = true }: { id: ThemeId; cast?: boolean }) {
   return <div className={`scene scene-${id}`}>
     {id === 'midnight' && <><i className="sc-blob a" /><i className="sc-blob b" /><Stars n={40} /></>}
 
@@ -155,6 +160,9 @@ export function Scene({ id }: { id: ThemeId }) {
       <Bits n={26} cls="sc-bubble" salt={4} />
     </>}
 
+    {id === 'spellbound' && <SpellboundScene cast={cast} />}
+    {id === 'kirakira' && <KiraScene cast={cast} />}
+
     {id === 'fireflies' && <>
       <i className="sc-moon haze" />
       <Stars n={22} salt={12} />
@@ -178,16 +186,25 @@ export function RoomThemeLayer({ theme }: { theme: ThemeId }) {
     return () => { delete root.dataset.roomTheme; };
   }, [theme]);
   if (theme === 'midnight') return null;
-  return <div className="ambient room-theme" aria-hidden="true" key={theme}><Scene id={theme} /></div>;
+  return <div className="ambient room-theme" aria-hidden="true" key={theme}><Scene id={theme} cast={false} /></div>;
 }
 
-/** The picker: live little previews of every scene. */
+/** The picker: live little previews of every scene. Worlds get their own cards on top. */
 export function ThemePicker({ value, onPick }: { value: ThemeId; onPick: (id: ThemeId) => void }) {
-  return <div className="theme-grid" role="radiogroup" aria-label="Room theme">
-    {THEMES.map(t => <button key={t.id} role="radio" aria-checked={value === t.id} className={`theme-card${value === t.id ? ' on' : ''}`} onClick={() => onPick(t.id)}>
-      <Scene id={t.id} />
-      <span className="theme-card-text"><b>{t.name}</b><small>{t.line}</small></span>
-      {value === t.id && <span className="theme-card-check"><Icon name="check" size={14} /></span>}
-    </button>)}
+  const card = (t: typeof THEMES[number]) => <button key={t.id} role="radio" aria-checked={value === t.id} className={`theme-card${t.world ? ' world' : ''}${value === t.id ? ' on' : ''}`} onClick={() => onPick(t.id)}>
+    <Scene id={t.id} />
+    {t.world && <span className="theme-card-tag">World</span>}
+    <span className="theme-card-text"><b>{t.name}</b><small>{t.line}</small></span>
+    {value === t.id && <span className="theme-card-check"><Icon name="check" size={14} /></span>}
+  </button>;
+  return <div className="col gap-16" role="radiogroup" aria-label="Room theme">
+    <div className="col gap-8">
+      <p className="small muted">Worlds · the whole room changes, with characters who react to what you do</p>
+      <div className="theme-grid worlds">{THEMES.filter(t => t.world).map(card)}</div>
+    </div>
+    <div className="col gap-8">
+      <p className="small muted">Backdrops</p>
+      <div className="theme-grid">{THEMES.filter(t => !t.world).map(card)}</div>
+    </div>
   </div>;
 }

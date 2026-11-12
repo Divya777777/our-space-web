@@ -5,6 +5,8 @@ import { installHistoryRules } from './lib/historyRules';
 // One font everywhere: Outfit (variable, 100–900), bundled with the site — no Google Fonts request.
 import '@fontsource-variable/outfit';
 import './styles.css';
+// World themes (Spellbound, Kira Kira): after the main styles, so their looks win.
+import './worldThemes.css';
 
 // Before the router starts: back on Home leaves the site, back elsewhere goes Home.
 installHistoryRules(import.meta.env.BASE_URL);
