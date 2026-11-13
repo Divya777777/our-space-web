@@ -250,18 +250,45 @@ textarea.input { height: auto; padding: 12px 16px; resize: vertical; min-height:
 .composer textarea { flex: 1; min-height: 44px; max-height: 140px; height: 44px; resize: none; border-radius: 22px; padding: 11px 16px; }
 
 /* Calls */
-.call-layer { position: fixed; inset: 0; z-index: 90; display: grid; grid-template-rows: auto 1fr auto; background: rgba(3, 5, 12, .82); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); animation: fade .25s var(--ease); }
+/* Solid, not a blur over the page: the room (its video, its animated backdrop) keeps moving underneath, and blurring that every frame made calls heavy. */
+.call-layer { position: fixed; inset: 0; z-index: 90; display: grid; grid-template-rows: auto 1fr auto; background: radial-gradient(120% 90% at 50% 0%, #141B36 0%, #080B16 58%, #04060D 100%); animation: callIn .28s var(--ease); }
 .call-top { display: flex; align-items: center; gap: 12px; padding: 18px 22px; }
 .call-stage { position: relative; min-height: 0; display: grid; gap: 14px; padding: 6px 22px; align-content: center; justify-content: center; }
 .tile { position: relative; border-radius: 26px; overflow: hidden; background: #0A0E1A; box-shadow: var(--depth), 0 0 0 1px var(--edge); display: grid; place-items: center; aspect-ratio: 16 / 10; transition: box-shadow .2s; }
 .tile.speaking { box-shadow: var(--depth), 0 0 0 2px var(--mint), 0 0 40px -6px rgba(182,221,207,.6); }
-.tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #0A0E1A; }
 .self-tile video, .call-pill .tile video { object-fit: cover; }
-.tile .name { position: absolute; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 10px; background: rgba(4,6,13,.6); backdrop-filter: blur(10px); font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.tile .name { position: absolute; left: 12px; bottom: 12px; z-index: 2; padding: 4px 10px; border-radius: 10px; background: rgba(4,6,13,.72); font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
 .self-tile { position: absolute; right: 26px; bottom: 26px; width: 220px; aspect-ratio: 16 / 10; z-index: 3; }
 .self-tile video { transform: scaleX(-1); }
 .call-controls { display: flex; justify-content: center; padding: 18px 0 30px; }
-.call-controls .glass { display: flex; gap: 10px; padding: 10px; border-radius: 999px; }
+.call-controls .glass { display: flex; gap: 10px; padding: 10px; border-radius: 999px; backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255, 255, 255, .07); }
+/* Calls, light to draw and soft to look at: the room's backdrop rests while the full call view covers it, pictures
+   fade in on their first frame (their photo stays until then), tiles ease in, and the view fades out when it closes. */
+@keyframes callIn { from { opacity: 0; transform: scale(1.012); } }
+@keyframes callOut { to { opacity: 0; transform: scale(1.012); } }
+@keyframes tileIn { from { transform: scale(.95); } }
+.call-layer.closing { animation: callOut .22s var(--ease) forwards; pointer-events: none; }
+html[data-call-open] .ambient { visibility: hidden; }
+html[data-call-open] .ambient * { animation-play-state: paused !important; }
+/* Their photo covers the tile until the picture's first frame is there, then fades away.
+   The videos in the call view count as very slightly see-through (.999, invisible to the eye). A video the browser
+   treats as fully solid lets it skip drawing what is behind; when that video's frame isn't ready (as it starts, or
+   changes size) the page underneath showed through the tile for a few frames. Seen in tests once the call view
+   stopped being a blur; this keeps the tile's own background behind every picture. */
+.call-layer .tile video { opacity: .999; }
+.call-stage > .tile, .call-stage .spot > .tile, .call-strip .tile { animation: tileIn .3s var(--ease) backwards; }
+.tile-wait { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; justify-items: center; gap: 8px; background: #0A0E1A; transition: opacity .35s var(--ease); }
+.tile-wait.gone { opacity: 0; pointer-events: none; }
+/* What is stacked inside a tile (photo, name, chips) stays inside it, and never sits above the call buttons. */
+.call-layer .tile { isolation: isolate; }
+/* A tall picture (a phone held upright) in a two-person call: the tile takes the picture's shape, no side bars. */
+.call-stage.solo > .tile.tall { aspect-ratio: var(--ar); height: min(calc(100dvh - 230px), 1100px); width: auto; max-width: 100%; justify-self: center; }
+.call-stage.solo > .tile.tall video { object-fit: cover; }
+.tile-net, .net-hint { display: inline-flex; align-items: center; gap: 6px; }
+.tile-net { position: absolute; right: 12px; bottom: 12px; z-index: 2; padding: 4px 10px; border-radius: 10px; background: rgba(4, 6, 13, .72); font-size: 12px; font-weight: 600; color: #FFD9A0; animation: fade .3s var(--ease); }
+.tile-net i, .net-hint i { width: 7px; height: 7px; border-radius: 50%; background: #FFB454; }
+@media (prefers-reduced-motion: reduce) { .call-layer, .call-layer.closing, .call-stage .tile { animation: none; } .tile-wait { transition: none; } }
 .call-pill { position: fixed; z-index: 85; right: 22px; bottom: 22px; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 16px; border-radius: 999px; }
 .ring { animation: ring 1.7s var(--ease) infinite; }
 @keyframes ring { 50% { transform: scale(1.05); } }
@@ -640,7 +667,7 @@ textarea.input { height: auto; padding: 12px 16px; resize: vertical; min-height:
 .fs-call { position: fixed; right: 22px; bottom: 22px; z-index: 2147483000; width: 340px; height: 220px; border-radius: 22px; overflow: hidden;
   border: 1px solid rgba(255,255,255,.16); box-shadow: 0 24px 60px -20px rgba(0,0,0,.9); transition: width .35s cubic-bezier(.2,1.2,.4,1), height .35s cubic-bezier(.2,1.2,.4,1); }
 .fs-call.big { width: min(600px, 46vw); height: min(380px, 50vh); }
-.fs-call .call-float { background: rgba(10,12,24,.78); backdrop-filter: blur(16px); }
+.fs-call .call-float { background: rgba(10,12,24,.94); }
 .notify-prompt { padding: 12px 14px; border-radius: 20px; animation: slide-in .6s cubic-bezier(.2,1.3,.4,1); }
 /* Chat: save a photo (files already download on click). */
 .msg-photo { position: relative; display: inline-block; }

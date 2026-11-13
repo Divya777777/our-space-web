@@ -80,6 +80,9 @@ export default function RoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
   useEffect(() => enterRoom(code), [code]);
+  // Fetch the call relay servers now (kept for hours), so the first call from this room starts without that wait.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void space.iceServers().catch(() => {}); }, [code]);
   // Leaving the room page tells the server; if nobody else has the room open, its video pauses for the room.
   // (Switching tabs doesn't count: the video keeps playing in the background or the floating window.)
   const apiRef = useRef(space.api);

@@ -284,7 +284,7 @@ html[data-room-theme='spellbound'] .dot-ring .dot { filter: drop-shadow(0 0 2.5p
 html[data-room-theme='spellbound'] .bar { background: rgba(244, 199, 107, .1); }
 html[data-room-theme='spellbound'] .bar > i { box-shadow: 0 0 10px rgba(244, 199, 107, .5); }
 html[data-room-theme='spellbound'] .tile.speaking { box-shadow: var(--depth), 0 0 0 2px #F4C76B, 0 0 40px -6px rgba(244, 199, 107, .7); }
-html[data-room-theme='spellbound'] .call-layer { background: rgba(26, 7, 24, .86); }
+html[data-room-theme='spellbound'] .call-layer { background: radial-gradient(120% 90% at 50% 0%, #4A1C42 0%, #260C22 55%, #1A0718 100%); }
 
 /* Toasts are little scrolls; sheets open like a book */
 html[data-room-theme='spellbound'] .toast { position: relative; padding: 12px 26px; border: 0; border-radius: 4px; color: #3A2413; font-weight: 500; background: linear-gradient(180deg, #FBEFD3, #EBD6A8); box-shadow: 0 16px 30px -12px rgba(0, 0, 0, .7); -webkit-backdrop-filter: none; backdrop-filter: none; animation: sbUnroll .5s var(--ease) both; }

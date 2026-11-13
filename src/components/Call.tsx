@@ -1,6 +1,6 @@
 // Voice and video calls in the browser, using the same signalling as the phone app (call inbox + per-person
 // signals, one RTCPeerConnection per other person, offers from the lower user ID, media state on a data channel).
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { blockedNow, isBlockedId } from '../lib/safety';
 import { AudioDeviceSheet, canPickSpeaker, loadAudioChoice, saveAudioChoice, useAudioDevices } from './AudioDevices';
 import { useNavigate } from 'react-router-dom';
@@ -17,8 +17,11 @@ type Phase = 'idle' | 'incoming' | 'outgoing' | 'connecting' | 'connected' | 're
 type Candidate = RTCIceCandidateInit;
 type Description = RTCSessionDescriptionInit;
 type ActiveCall = { id: string; code: string; video: boolean; title: string; starter: CallPeer; members: CallPeer[]; offer?: Description; mine: boolean };
-type Peer = { id: string; name: string; pc: RTCPeerConnection; stream: MediaStream | null; channel: RTCDataChannel | null; sender: RTCRtpSender | null; state: 'connecting' | 'connected' | 'reconnecting'; cameraOff: boolean; muted: boolean; out: { ready: boolean; queue: Candidate[]; timer?: ReturnType<typeof setTimeout> } };
-type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; state: Peer['state'] };
+type Peer = { id: string; name: string; pc: RTCPeerConnection; stream: MediaStream | null; channel: RTCDataChannel | null; sender: RTCRtpSender | null; state: 'connecting' | 'connected' | 'reconnecting'; cameraOff: boolean; muted: boolean; out: { ready: boolean; queue: Candidate[]; timer?: ReturnType<typeof setTimeout> };
+  /** 2 or more: this person's app can repair a dropped connection in place (it says so on the data channel). Older apps stay 0 and behave as before. */ caps: number;
+  /** Was connected at least once. */ live: boolean; /** Their picture and sound are arriving badly right now. */ weak: boolean;
+  fix: { timer?: ReturnType<typeof setTimeout>; tries: number }; net: { lost: number; got: number; freezes: number; score: number; calm: number; target: number } };
+type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; state: Peer['state']; weak: boolean };
 /** Messages for features riding on the call (Netflix / Prime watch party): sent to everyone on the call over the
  * peer-to-peer data channel. Phones ignore what they don't know. */
 export type PartyMessage = { w: 'party' } & Record<string, unknown>;
@@ -41,20 +44,37 @@ function micConstraints(id: string, exact: boolean): MediaTrackConstraints {
   return { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(id ? { deviceId: exact ? { exact: id } : { ideal: id } } : {}) };
 }
 const VIDEO: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 }, facingMode: 'user' };
-/** Send the full picture: when the connection gets tight, lower the frame rate rather than the resolution. */
-async function keepResolution(sender: RTCRtpSender | null | undefined) {
+/** What each person is sent, by how many others are on the call. Every other person is one more upload from this
+ *  computer, so groups get a smaller picture each. One other person: the full picture, exactly as before
+ *  ('balanced' keeps motion steady when the link wobbles; 'maintain-resolution' froze and jumped). */
+const SEND = [
+  { bitrate: 1_500_000, scale: 1, fps: 30 },   // two-person call: 720p
+  { bitrate: 900_000, scale: 1.5, fps: 30 },   // 2 others: 480p each
+  { bitrate: 600_000, scale: 2, fps: 24 },     // 3 others: 360p each
+  { bitrate: 380_000, scale: 2.5, fps: 20 },   // 4 or more others
+];
+async function tune(sender: RTCRtpSender | null | undefined, others: number) {
   if (!sender?.track || sender.track.kind !== 'video') return;
   try {
     sender.track.contentHint = 'motion';
     const params = sender.getParameters() as RTCRtpSendParameters & { degradationPreference?: string };
     if (!params.encodings?.length) return;
-    // 'maintain-resolution' made the picture freeze then jump whenever the link wobbled (it drops whole frames
-    // to keep every pixel). 'balanced' trades a little sharpness for steady motion, and 1.5 Mbps leaves headroom.
-    params.encodings.forEach(e => { e.maxBitrate = 1_500_000; e.maxFramerate = 30; e.scaleResolutionDownBy = 1; e.priority = 'high'; e.networkPriority = 'high'; });
+    const q = SEND[Math.min(Math.max(others, 1), SEND.length) - 1];
+    params.encodings.forEach(e => { e.maxBitrate = q.bitrate; e.maxFramerate = q.fps; e.scaleResolutionDownBy = q.scale; e.priority = 'high'; e.networkPriority = 'high'; });
     params.degradationPreference = 'balanced';
     await sender.setParameters(params);
   } catch { /* the browser keeps its defaults */ }
 }
+/** How long the picture is held before it is shown (ms). Voices are never held back. */
+const VIDEO_BUFFER = 80;
+function setBuffer(receiver: RTCRtpReceiver, ms: number) { try { (receiver as RTCRtpReceiver & { jitterBufferTarget?: number | null }).jitterBufferTarget = ms; } catch { /* older browsers */ } }
+/** Who is talking, worked out once for the whole call (see CallProvider) and read by every face. */
+type Voices = { speaking: ReadonlySet<string>; speaker: string | null };
+const QUIET: Voices = { speaking: new Set(), speaker: null };
+const VoiceContext = createContext<Voices>(QUIET);
+const useVoice = (id: string) => useContext(VoiceContext).speaking.has(id);
+/** Louder than this counts as talking (0–1, the level the connection reports for each voice). */
+const TALK = 0.04;
 
 export function CallProvider({ children }: React.PropsWithChildren) {
   const space = useSpace();
@@ -87,10 +107,12 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const ice = useRef<RTCIceServer[] | null>(null);
   const mediaState = useRef({ cameraOff: true, muted: false });
   const tone = useRef<{ stop: () => void } | null>(null);
+  /** False when only the public address servers answered: calls through strict networks then can't connect. */
+  const hasRelay = () => (ice.current || []).some(x => ([] as string[]).concat(x.urls).some(u => /^turns?:/i.test(u)));
 
   const transition = (next: Phase) => { phaseRef.current = next; setPhase(next); };
   const select = (next: ActiveCall | null) => { callRef.current = next; setCall(next); };
-  const refresh = () => setPeerList([...peers.current.values()].map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted, state: p.state })));
+  const refresh = () => setPeerList([...peers.current.values()].map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted, state: p.state, weak: p.weak })));
   const sendTo = (to: string, type: CallSignal['type'], payload: Record<string, unknown> = {}, target = callRef.current) => target ? latest.current.signalCall(target.code, to, type, { ...payload, callId: target.id }) : Promise.resolve();
   function flush(peer: Peer) {
     clearTimeout(peer.out.timer); peer.out.timer = undefined;
@@ -98,10 +120,11 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     if (!peer.out.ready || !peer.out.queue.length || !target || peers.current.get(peer.id) !== peer) return;
     void sendTo(peer.id, 'candidate', { candidates: peer.out.queue.splice(0) }, target).catch(() => {});
   }
-  function removePeer(id: string) { const p = peers.current.get(id); if (!p) return; clearTimeout(p.out.timer); try { p.pc.close(); } catch { /* closed */ } peers.current.delete(id); early.current.delete(id); refresh(); }
+  function removePeer(id: string) { const p = peers.current.get(id); if (!p) return; clearTimeout(p.out.timer); clearTimeout(p.fix.timer); try { p.pc.close(); } catch { /* closed */ } peers.current.delete(id); early.current.delete(id); tuneAll(); refresh(); }
   function stopTone() { tone.current?.stop(); tone.current = null; }
   function finish(notify = true, message = '') {
     const previous = callRef.current; const wasRinging = phaseRef.current === 'incoming';
+    if (previous && (phaseRef.current === 'connected' || phaseRef.current === 'reconnecting')) endSound();
     const everyone = new Set([...peers.current.keys(), ...pending.current]);
     select(null); transition('idle'); setExpanded(true); stopTone();
     [...peers.current.keys()].forEach(removePeer);
@@ -118,7 +141,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   useEffect(() => () => finishRef.current(), []);
   useEffect(() => {
     if (!['incoming', 'outgoing', 'connecting', 'reconnecting'].includes(phase)) return;
-    const t = setTimeout(() => finishRef.current(phase !== 'incoming', phase === 'incoming' ? 'Missed call.' : phase === 'outgoing' ? 'No answer. Try again when they’re free.' : 'The call could not connect. Please try again.'), phase === 'reconnecting' ? 20000 : 45000);
+    const t = setTimeout(() => finishRef.current(phase !== 'incoming', phase === 'incoming' ? 'Missed call.' : phase === 'outgoing' ? 'No answer. Try again when they’re free.' : phase === 'reconnecting' ? 'The connection was lost. Call again when you’re back online.' : hasRelay() ? 'The call could not connect. Please try again.' : 'The call could not connect: our relay service didn’t answer. Please try again in a moment.'), phase === 'reconnecting' ? 35000 : 45000);
     return () => clearTimeout(t);
   }, [phase]);
   useEffect(() => { if (phase !== 'connected' && phase !== 'reconnecting') return; const t = setInterval(() => setElapsed(v => v + 1), 1000); return () => clearInterval(t); }, [phase]);
@@ -136,19 +159,23 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   function updatePhase() {
     if (phaseRef.current === 'idle' || phaseRef.current === 'incoming') return;
     const list = [...peers.current.values()];
-    if (list.some(p => p.state === 'connected')) { stopTone(); if (phaseRef.current !== 'connected') { transition('connected'); setError(''); } }
+    if (list.some(p => p.state === 'connected')) { stopTone(); if (phaseRef.current !== 'connected') { if (phaseRef.current !== 'reconnecting') connectSound(); transition('connected'); setError(''); } }
     else if (list.some(p => p.state === 'reconnecting')) transition('reconnecting');
   }
   function shareMedia(only?: RTCDataChannel) {
-    const packet = JSON.stringify(mediaState.current);
+    // `v: 2`: this app can repair a dropped connection in place (see repair()).
+    const packet = JSON.stringify({ ...mediaState.current, v: 2 });
     for (const ch of only ? [only] : [...peers.current.values()].map(p => p.channel)) if (ch?.readyState === 'open') ch.send(packet);
   }
   function attach(peer: Peer, ch: RTCDataChannel) {
     peer.channel = ch;
     ch.onopen = () => shareMedia(ch);
-    ch.onmessage = e => { if (peer.channel !== ch) return; try { const s = JSON.parse(String(e.data)); if (s && s.w === 'party') { partyListeners.forEach(fn => { try { fn(s as PartyMessage, { id: peer.id, name: peer.name }); } catch { /* listener error */ } }); return; } if (typeof s.cameraOff === 'boolean') peer.cameraOff = s.cameraOff; if (typeof s.muted === 'boolean') peer.muted = s.muted; refresh(); } catch { /* ignore */ } };
+    ch.onmessage = e => { if (peer.channel !== ch) return; try { const s = JSON.parse(String(e.data)); if (s && s.w === 'party') { partyListeners.forEach(fn => { try { fn(s as PartyMessage, { id: peer.id, name: peer.name }); } catch { /* listener error */ } }); return; } if (typeof s.v === 'number') peer.caps = s.v; if (typeof s.cameraOff === 'boolean') peer.cameraOff = s.cameraOff; if (typeof s.muted === 'boolean') peer.muted = s.muted; refresh(); } catch { /* ignore */ } };
   }
   async function prepare(target: ActiveCall) {
+    // Ask for the relay servers while the camera and microphone start, not after them.
+    const servers = ice.current ? null : latest.current.iceServers();
+    servers?.catch(() => {});
     if (!stream.current) {
       stopTone();
       let media: MediaStream;
@@ -159,7 +186,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       media.getAudioTracks().forEach(t => t.addEventListener('ended', () => setMicCheck(n => n + 1)));
       mediaState.current = { muted: false, cameraOff: !target.video }; setCameraOff(!target.video);
     }
-    if (!ice.current) ice.current = await latest.current.iceServers();
+    if (servers) { const list = await servers; if (!ice.current) ice.current = list; }
     return callRef.current === target;
   }
   /** Switch the call's microphone without reconnecting: the new mic replaces the old one for everyone. */
@@ -183,7 +210,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   function createPeer(person: CallPeer, target: ActiveCall, { offerer, ready }: { offerer: boolean; ready: boolean }) {
     removePeer(person.id);
     const pc = new RTCPeerConnection({ iceServers: ice.current || [], iceCandidatePoolSize: 2 });
-    const peer: Peer = { id: person.id, name: person.name, pc, stream: null, channel: null, sender: null, state: 'connecting', cameraOff: !target.video, muted: false, out: { ready, queue: [] } };
+    const peer: Peer = { id: person.id, name: person.name, pc, stream: null, channel: null, sender: null, state: 'connecting', cameraOff: !target.video, muted: false, out: { ready, queue: [] }, caps: 0, live: false, weak: false, fix: { tries: 0 }, net: { lost: 0, got: 0, freezes: 0, score: 0, calm: 0, target: VIDEO_BUFFER } };
     peers.current.set(person.id, peer);
     const media = stream.current!;
     media.getAudioTracks().forEach(t => pc.addTrack(t, media));
@@ -193,8 +220,9 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     pc.ondatachannel = e => attach(peer, e.channel);
     pc.ontrack = e => {
       if (peers.current.get(person.id) !== peer) return;
-      // A slightly deeper jitter buffer (~150 ms) smooths out the freeze-and-jump on wobbly Wi-Fi.
-      try { (e.receiver as RTCRtpReceiver & { jitterBufferTarget?: number }).jitterBufferTarget = 150; } catch { /* older browsers */ }
+      // Voices play as soon as they arrive. The picture starts with a small buffer; the quality watch deepens it
+      // only while the link is wobbly (that is what stops freeze-and-jump) and brings it back when things settle.
+      if (e.track.kind === 'video') setBuffer(e.receiver, peer.net.target);
       if (!peer.stream) peer.stream = e.streams[0] || new MediaStream();
       if (!peer.stream.getTracks().some(t => t.id === e.track.id)) peer.stream.addTrack(e.track);
       refresh();
@@ -203,13 +231,42 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     pc.oniceconnectionstatechange = () => {
       if (peers.current.get(person.id) !== peer || callRef.current !== target) return;
       const s = pc.iceConnectionState;
-      if (s === 'connected' || s === 'completed') { peer.state = 'connected'; pending.current.delete(person.id); shareMedia(); void keepResolution(peer.sender); }
-      else if (s === 'disconnected') peer.state = 'reconnecting';
-      else if (s === 'failed') { removePeer(person.id); maybeEnd(`${firstName(person.name)}’s connection dropped.`); return; }
+      if (s === 'connected' || s === 'completed') { peer.state = 'connected'; peer.live = true; clearTimeout(peer.fix.timer); peer.fix = { tries: 0 }; pending.current.delete(person.id); shareMedia(); tuneAll(); }
+      else if (s === 'disconnected') { peer.state = 'reconnecting'; repairSoon(peer, 2500); }
+      // A dropped connection is repaired in place when the other side can do that too; otherwise it ends as before.
+      else if (s === 'failed') {
+        if (peer.live && peer.caps >= 2) { peer.state = 'reconnecting'; repairSoon(peer, 0); }
+        else { removePeer(person.id); maybeEnd(`${firstName(person.name)}’s connection dropped.`); return; }
+      }
       refresh(); updatePhase();
     };
     refresh();
     return peer;
+  }
+  function tuneAll() { const n = peers.current.size; for (const p of peers.current.values()) void tune(p.sender, n); }
+  /** Repair a dropped connection without hanging up (an ICE restart): the lower ID sends a fresh offer over the same
+   *  connection, the other side asks for one. Only between apps that both announced it (`v: 2`); with anyone else
+   *  nothing changes. Tried again every 6 s until it is back or the "reconnecting" time limit ends the call. */
+  function repairSoon(peer: Peer, delay: number) {
+    if (peer.caps < 2 || peer.fix.timer) return;
+    peer.fix.timer = setTimeout(() => { peer.fix.timer = undefined; void repair(peer); }, delay);
+  }
+  async function repair(peer: Peer, asked = false) {
+    const target = callRef.current;
+    if (!target || peers.current.get(peer.id) !== peer || peer.caps < 2) return;
+    const s = peer.pc.iceConnectionState;
+    // Already back (it can recover by itself without telling us): show it as connected again.
+    if (!asked && (s === 'connected' || s === 'completed')) { if (peer.state !== 'connected') { peer.state = 'connected'; refresh(); updatePhase(); } return; }
+    if (!asked && peer.fix.tries >= 6) return;
+    if (!asked) peer.fix.tries++;
+    try {
+      if (latest.current.user.id < peer.id) {
+        if (peer.pc.signalingState !== 'stable') await peer.pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+        await peer.pc.setLocalDescription(await peer.pc.createOffer({ iceRestart: true }));
+        await sendTo(peer.id, 'offer', { description: peer.pc.localDescription!.toJSON(), restart: true }, target);
+      } else await sendTo(peer.id, 'hello', { restart: true }, target);
+    } catch { /* tried again below */ }
+    if (!asked) repairSoon(peer, 6000);
   }
   async function addEarly(peer: Peer) { for (const c of early.current.get(peer.id) || []) await peer.pc.addIceCandidate(c).catch(() => {}); early.current.delete(peer.id); }
   function maybeEnd(message = '') { if (!callRef.current || phaseRef.current === 'incoming') return; if (!peers.current.size && !pending.current.size) finish(false, message); }
@@ -329,9 +386,22 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       return;
     }
     if (signal.type === 'hello') {
-      if (peers.current.has(from.id)) return;
+      const known = peers.current.get(from.id);
+      // "My connection to you dropped" from someone we are already connected to: send them a fresh offer on it.
+      if (known) { if (signal.payload.restart === true && known.live && latest.current.user.id < from.id) await repair(known, true); return; }
       if (latest.current.user.id < from.id) await offerTo(from, target);
       else if (!helloed.current.has(from.id)) { helloed.current.add(from.id); await sendTo(from.id, 'hello', {}, target); }
+      return;
+    }
+    if (signal.type === 'offer' && signal.payload.restart === true) {
+      // A repair of the connection we already have: answer on it (a new connection would drop picture and sound).
+      const known = peers.current.get(from.id); if (!known) return;
+      try {
+        if (known.pc.signalingState !== 'stable') await known.pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+        await known.pc.setRemoteDescription(signal.payload.description as Description);
+        await known.pc.setLocalDescription(await known.pc.createAnswer());
+        await sendTo(from.id, 'answer', { description: known.pc.localDescription!.toJSON(), restart: true }, target);
+      } catch { /* they try again in a few seconds */ }
       return;
     }
     if (signal.type === 'offer') { await answerFrom(from, signal.payload.description as Description, target); return; }
@@ -377,21 +447,111 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   function toggleMute() { const next = !mediaState.current.muted; stream.current?.getAudioTracks().forEach(t => { t.enabled = !next; }); mediaState.current.muted = next; setMuted(next); shareMedia(); }
   async function toggleCamera() {
     if (busy || !callRef.current || !stream.current) return;
-    const target = callRef.current; setBusy(true);
+    const target = callRef.current; const media = stream.current; setBusy(true);
     try {
-      const next = !mediaState.current.cameraOff;
-      let cam = stream.current.getVideoTracks()[0];
-      if (!next && !cam) {
+      let cam = media.getVideoTracks()[0];
+      if (!mediaState.current.cameraOff) {
+        // Off means off: tell everyone first (they switch to your photo), then stop the camera so its light goes out.
+        mediaState.current.cameraOff = true; setCameraOff(true); shareMedia();
+        if (cam) {
+          await Promise.all([...peers.current.values()].map(p => p.sender?.replaceTrack(null).catch(() => {})));
+          media.removeTrack(cam); cam.stop();
+          if (stream.current === media) setLocal(new MediaStream(media.getTracks()));
+        }
+        return;
+      }
+      if (!cam) {
         const cap = await navigator.mediaDevices.getUserMedia({ video: VIDEO }).catch(() => { throw new Error('Allow the camera for this site, then try again.'); });
-        if (callRef.current !== target) { cap.getTracks().forEach(t => t.stop()); return; }
+        if (callRef.current !== target || stream.current !== media) { cap.getTracks().forEach(t => t.stop()); return; }
         cam = cap.getVideoTracks()[0];
         await Promise.all([...peers.current.values()].map(p => p.sender?.replaceTrack(cam!)));
-        stream.current.addTrack(cam); setLocal(new MediaStream(stream.current.getTracks()));
+        media.addTrack(cam); setLocal(new MediaStream(media.getTracks())); tuneAll();
       }
-      if (cam) cam.enabled = !next;
-      mediaState.current.cameraOff = next; setCameraOff(next); shareMedia();
+      cam.enabled = true;
+      mediaState.current.cameraOff = false; setCameraOff(false); shareMedia();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
+  // Back online after a drop (Wi-Fi returned, laptop woke up): repair every connection that is down, now.
+  useEffect(() => {
+    const back = () => { for (const p of peers.current.values()) if (p.live && p.state !== 'connected') { clearTimeout(p.fix.timer); p.fix.timer = undefined; void repair(p); } };
+    window.addEventListener('online', back); return () => window.removeEventListener('online', back);
+    // repair only reads refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Who is talking: one check for the whole call, read from the level each connection already reports (no audio
+  // graph per face). Faces light up from this; the big face follows the loudest voice, held 1.5 s so it doesn't flicker.
+  const [voices, setVoices] = useState<Voices>(QUIET);
+  useEffect(() => {
+    if (phase !== 'connected' && phase !== 'reconnecting') { setVoices(QUIET); return; }
+    const heard = new Map<string, number>(); let lead: string | null = null; let since = 0; let key = '';
+    let ctx: AudioContext | null = null; const meters = new Map<string, { an: AnalyserNode; buf: Uint8Array; stream: MediaStream }>();
+    const level = (p: Peer) => {
+      if (p.muted || p.state !== 'connected') return 0;
+      const source = p.pc.getReceivers().find(r => r.track?.kind === 'audio')?.getSynchronizationSources?.()[0];
+      if (source && typeof source.audioLevel === 'number') return source.audioLevel;
+      // Browsers that don't report a level: one shared analyser for everyone.
+      if (!p.stream?.getAudioTracks().length) return 0;
+      let m = meters.get(p.id);
+      if (!m || m.stream !== p.stream) {
+        try { ctx = ctx || new AudioContext(); const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(p.stream).connect(an); m = { an, buf: new Uint8Array(512), stream: p.stream }; meters.set(p.id, m); }
+        catch { return 0; }
+      }
+      m.an.getByteTimeDomainData(m.buf); let sum = 0; for (const v of m.buf) { const d = (v - 128) / 128; sum += d * d; }
+      return Math.sqrt(sum / m.buf.length);
+    };
+    const t = setInterval(() => {
+      const now = Date.now(); const list = [...peers.current.values()]; const on: string[] = [];
+      let best: string | null = null; let bestLevel = TALK;
+      for (const p of list) { const v = level(p); if (v > TALK) heard.set(p.id, now); if (now - (heard.get(p.id) || 0) < 400) on.push(p.id); if (v > bestLevel) { bestLevel = v; best = p.id; } }
+      if (list.length < 2) lead = list[0]?.id ?? null;
+      else if (best && best !== lead && now - since > 1500) { lead = best; since = now; }
+      else if (lead && !list.some(p => p.id === lead)) lead = null;
+      const next = `${on.sort().join(',')}|${lead || ''}`;
+      if (next !== key) { key = next; setVoices({ speaking: new Set(on), speaker: lead }); }
+    }, 150);
+    return () => { clearInterval(t); void ctx?.close(); };
+  }, [phase]);
+  // The quality watch, every 2 s: a person whose picture and sound arrive badly (lost packets, jitter, freezes,
+  // a slow round trip) is marked "weak connection", and their picture gets a deeper buffer while that lasts.
+  const [selfWeak, setSelfWeak] = useState(false);
+  useEffect(() => {
+    if (phase !== 'connected') { setSelfWeak(false); return; }
+    let checking = false;
+    const t = setInterval(async () => {
+      if (checking) return; checking = true;
+      try {
+        let changed = false; const list = [...peers.current.values()].filter(p => p.state === 'connected');
+        for (const p of list) {
+          const report = await p.pc.getStats().catch(() => null);
+          if (!report || peers.current.get(p.id) !== p) continue;
+          let lost = 0, got = 0, freezes = 0, jitter = 0, rtt = 0;
+          report.forEach((r: Record<string, unknown> & { type: string }) => {
+            const num = (k: string) => (typeof r[k] === 'number' ? r[k] as number : 0);
+            if (r.type === 'inbound-rtp') { lost += num('packetsLost'); got += num('packetsReceived'); if (r.kind === 'video') { freezes += num('freezeCount'); jitter = Math.max(jitter, num('jitter')); } }
+            else if (r.type === 'candidate-pair' && r.nominated === true && r.state === 'succeeded') rtt = Math.max(rtt, num('currentRoundTripTime'));
+          });
+          const n = p.net; const first = n.got === 0;
+          const dLost = Math.max(0, lost - n.lost), dGot = Math.max(0, got - n.got), dFreeze = Math.max(0, freezes - n.freezes);
+          n.lost = lost; n.got = got; n.freezes = freezes;
+          if (first) continue;
+          const loss = dLost + dGot > 20 ? dLost / (dLost + dGot) : 0;
+          const bad = loss > 0.05 || jitter > 0.06 || dFreeze > 0 || rtt > 0.6;
+          const fine = loss < 0.02 && jitter < 0.03 && dFreeze === 0 && rtt < 0.4;
+          n.score = bad ? Math.min(5, n.score + 1) : fine ? Math.max(0, n.score - 1) : n.score;
+          n.calm = fine ? n.calm + 1 : 0;
+          const target = n.score >= 4 ? 300 : n.score >= 2 ? 200 : n.calm >= 5 ? VIDEO_BUFFER : n.target;
+          if (target !== n.target) { n.target = target; p.pc.getReceivers().forEach(r => { if (r.track?.kind === 'video') setBuffer(r, target); }); }
+          const weak = n.score >= 2; if (weak !== p.weak) { p.weak = weak; changed = true; }
+        }
+        // Everyone looking bad at once (in a group) means the trouble is on this side.
+        setSelfWeak(list.length >= 2 && list.every(p => p.weak));
+        if (changed) refresh();
+      } finally { checking = false; }
+    }, 2000);
+    return () => clearInterval(t);
+    // refresh only reads refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
 
   const connected = phase === 'connected' || phase === 'reconnecting';
   const pip = usePip();
@@ -437,7 +597,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const [layout, setLayout] = useState<Layout>(() => { try { const v = localStorage.getItem('ourspace.callLayout'); return v === 'grid' || v === 'speaker' ? v : 'auto'; } catch { return 'auto'; } });
   const pickLayout = (v: Layout) => { setLayout(v); try { localStorage.setItem('ourspace.callLayout', v); } catch { /* fine */ } };
   useEffect(() => { if (!call) setPinned(null); }, [call]);
-  const speaker = useActiveSpeaker(others);
+  const speaker = voices.speaker;
   useEffect(() => { if (pinned && pinned !== SELF && !others.some(p => p.id === pinned)) setPinned(null); }, [pinned, others]);
   const [fsHost, setFsHost] = useState<Element | null>(null);
   useEffect(() => {
@@ -483,7 +643,50 @@ export function CallProvider({ children }: React.PropsWithChildren) {
 
   const sendParty = (msg: PartyMessage) => { const text = JSON.stringify(msg); let n = 0; for (const p of peers.current.values()) if (p.channel?.readyState === 'open') { try { p.channel.send(text); n++; } catch { /* closing */ } } return n; };
   const onParty = (fn: PartyListener) => { partyListeners.add(fn); return () => { partyListeners.delete(fn); }; };
-  return <CallContext.Provider value={{ faces: connected ? [{ id: SELF, name: space.user.name, stream: local, cameraOff, muted, self: true }, ...others.map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted }))] : [], cameraOff, toggleCamera: () => { void toggleCamera(); }, video: !!call?.video, setInGame, activeCode: call?.code, activeId: call?.id, join: (c, l) => { void join(c, l); }, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false), floatCall, canFloat, muted, toggleMute, hangup: () => finish(), status, setDocked }}>
+  // The full call view. When it closes (minimised, floated or the call ends) the last picture of it stays for a
+  // moment and fades out, instead of vanishing. Same place in the tree, so the videos are not restarted.
+  const layerShown = !!call && phase !== 'incoming' && expanded && !inPip;
+  const layerEl = layerShown && call ? <div className="call-layer" role="dialog" aria-label={`Call · ${call.title}`}>
+      <div className="call-top">
+        <IconButton icon="down" label="Back to the room, the call continues" onClick={() => setExpanded(false)} />
+        {!pip.supported && canFloat && <IconButton icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
+        <div className="grow"><p className="h3">{group ? call.title : others[0]?.name || call.title}</p><p className="small muted">{!group && others[0]?.muted && connected ? 'Muted · ' : ''}{status}</p></div>
+        {error && <span className="small rose">{error}</span>}
+        {!error && selfWeak && connected && <span className="small muted net-hint"><i />Your connection is weak</span>}
+        {connected && others.length >= 2 && <div className="layout-seg" role="group" aria-label="Layout">
+          {(['auto', 'grid', 'speaker'] as Layout[]).map(v => <button key={v} className={layout === v ? 'on' : ''} aria-pressed={layout === v} onClick={() => pickLayout(v)}>{v === 'auto' ? 'Auto' : v === 'grid' ? 'Grid' : 'Speaker'}</button>)}
+        </div>}
+      </div>
+      {(() => {
+        const swap = selfBig && !!local && !cameraOff && connected && others.length === 1;
+        const me = <><VideoEl stream={local!} muted /><span className="name">You{muted && <Icon name="micOff" size={13} />}</span></>;
+        return <>
+          {swap ? <div className="call-stage" style={{ gridTemplateColumns: 'minmax(0, min(1100px, 100%))' }}><div className="tile self-big">{me}</div></div>
+            : <Stage others={others} connected={connected} video={call.video} title={call.title} status={status} ringing={call.members} layout={layout} pinned={pinned === SELF ? null : pinned} onPin={setPinned} speaker={speaker} />}
+          {swap ? <button className="tile self-tile swap" onClick={() => setSelfBig(false)} aria-label={`Make ${firstName(others[0].name)} big`} title="Make this the big picture"><PeerTile p={others[0]} video={call.video} /></button>
+            : local && !cameraOff && <button className="tile self-tile swap" onClick={() => { if (connected && others.length === 1) setSelfBig(true); }} aria-label="Make your picture big" title={others.length === 1 ? 'Make this the big picture' : undefined}>{me}</button>}
+        </>;
+      })()}
+      <div className="call-controls"><div className="glass">{controls}</div></div>
+    </div> : null;
+  const lastLayer = useRef<React.ReactElement | null>(null);
+  const [ghost, setGhost] = useState<React.ReactElement | null>(null);
+  if (layerEl) lastLayer.current = layerEl;
+  useLayoutEffect(() => {
+    if (layerShown) { setGhost(null); return; }
+    const last = lastLayer.current; lastLayer.current = null;
+    if (!last) return;
+    setGhost(React.cloneElement(last, { className: 'call-layer closing', 'aria-hidden': true }));
+    const t = setTimeout(() => setGhost(null), 240);
+    return () => clearTimeout(t);
+  }, [layerShown]);
+  // While the full call view covers the page, the room's animated backdrop rests (nobody can see it).
+  useEffect(() => {
+    if (!layerShown) return;
+    document.documentElement.dataset.callOpen = '';
+    return () => { delete document.documentElement.dataset.callOpen; };
+  }, [layerShown]);
+  return <VoiceContext.Provider value={voices}><CallContext.Provider value={{ faces: connected ? [{ id: SELF, name: space.user.name, stream: local, cameraOff, muted, self: true }, ...others.map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted }))] : [], cameraOff, toggleCamera: () => { void toggleCamera(); }, video: !!call?.video, setInGame, activeCode: call?.code, activeId: call?.id, join: (c, l) => { void join(c, l); }, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false), floatCall, canFloat, muted, toggleMute, hangup: () => finish(), status, setDocked }}>
     {call && <video ref={floatSrc} className="float-src" muted playsInline autoPlay aria-hidden="true" />}
     {children}
     {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} sinkId={speakerId} />)}
@@ -501,28 +704,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
           <div className="col gap-8" style={{ alignItems: 'center' }}><IconButton size="lg" icon={call.video ? 'video' : 'phone'} variant="mint" label="Answer" onClick={() => void accept()} /><span className="small muted">Answer</span></div></div>
       </div>
     </div>}
-    {call && phase !== 'incoming' && expanded && !inPip && <div className="call-layer" role="dialog" aria-label={`Call · ${call.title}`}>
-      <div className="call-top">
-        <IconButton icon="down" label="Back to the room, the call continues" onClick={() => setExpanded(false)} />
-        {!pip.supported && canFloat && <IconButton icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
-        <div className="grow"><p className="h3">{group ? call.title : others[0]?.name || call.title}</p><p className="small muted">{!group && others[0]?.muted && connected ? 'Muted · ' : ''}{status}</p></div>
-        {error && <span className="small rose">{error}</span>}
-        {connected && others.length >= 2 && <div className="layout-seg" role="group" aria-label="Layout">
-          {(['auto', 'grid', 'speaker'] as Layout[]).map(v => <button key={v} className={layout === v ? 'on' : ''} aria-pressed={layout === v} onClick={() => pickLayout(v)}>{v === 'auto' ? 'Auto' : v === 'grid' ? 'Grid' : 'Speaker'}</button>)}
-        </div>}
-      </div>
-      {(() => {
-        const swap = selfBig && !!local && !cameraOff && connected && others.length === 1;
-        const me = <><VideoEl stream={local!} muted /><span className="name">You{muted && <Icon name="micOff" size={13} />}</span></>;
-        return <>
-          {swap ? <div className="call-stage" style={{ gridTemplateColumns: 'minmax(0, min(1100px, 100%))' }}><div className="tile self-big">{me}</div></div>
-            : <Stage others={others} connected={connected} video={call.video} title={call.title} status={status} ringing={call.members} layout={layout} pinned={pinned === SELF ? null : pinned} onPin={setPinned} speaker={speaker} />}
-          {swap ? <button className="tile self-tile swap" onClick={() => setSelfBig(false)} aria-label={`Make ${firstName(others[0].name)} big`} title="Make this the big picture"><PeerTile p={others[0]} video={call.video} /></button>
-            : local && !cameraOff && <button className="tile self-tile swap" onClick={() => { if (connected && others.length === 1) setSelfBig(true); }} aria-label="Make your picture big" title={others.length === 1 ? 'Make this the big picture' : undefined}>{me}</button>}
-        </>;
-      })()}
-      <div className="call-controls"><div className="glass">{controls}</div></div>
-    </div>}
+    {layerShown ? layerEl : ghost}
     {call && phase !== 'incoming' && !expanded && !inPip && !inGame && (call.video || docked !== call.code) && <MiniCall others={others} spotId={pinned && pinned !== SELF ? pinned : speaker} onPin={setPinned} self={local && !cameraOff ? local : null} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
       {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
       {!pip.supported && canFloat && <IconButton size="sm" icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
@@ -533,14 +715,14 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         <div style={{ textAlign: 'center' }}><p className="h3 ellipsis">{call.title}</p><p className="tiny muted">{status}</p></div>
         <div className="row gap-16"><IconButton icon="hangup" variant="end" label="Decline" onClick={() => finish(true)} /><IconButton icon={call.video ? 'video' : 'phone'} variant="mint" label="Answer" onClick={() => void accept()} /></div>
       </div></div>
-      : <CallFloat others={others.length ? others : call.members.map(m => ({ id: m.id, name: m.name, stream: null, cameraOff: true, muted: false, state: 'connecting' as const }))} video={call.video} local={local} cameraOff={cameraOff} muted={muted} status={status} big={floatBig} onBig={setFloatBig}
+      : <CallFloat others={others.length ? others : call.members.map(m => ({ id: m.id, name: m.name, stream: null, cameraOff: true, muted: false, state: 'connecting' as const, weak: false }))} video={call.video} local={local} cameraOff={cameraOff} muted={muted} status={status} big={floatBig} onBig={setFloatBig}
           pinned={pinned} onPin={setPinned} speaker={speaker} connected={connected} busy={busy} onMute={toggleMute} onCamera={() => void toggleCamera()} onEnd={() => finish()} />, pip.slots!.call)}
     {/* Full-screen video in this tab (the room's YouTube player): the call floats inside it. */}
     {fsHost && call && connected && !inPip && createPortal(<div className={`fs-call ${floatBig ? 'big' : ''}`}>
       <CallFloat others={others} video={call.video} local={local} cameraOff={cameraOff} muted={muted} status={status} big={floatBig} onBig={setFloatBig}
         pinned={pinned} onPin={setPinned} speaker={speaker} connected={connected} busy={busy} onMute={toggleMute} onCamera={() => void toggleCamera()} onEnd={() => finish()} />
     </div>, fsHost)}
-  </CallContext.Provider>;
+  </CallContext.Provider></VoiceContext.Provider>;
 }
 
 type Layout = 'auto' | 'grid' | 'speaker';
@@ -567,7 +749,7 @@ export function GameFaces() {
 }
 function GameFace({ f }: { f: Face }) {
   const show = !!f.stream && !f.cameraOff && f.stream.getVideoTracks().length > 0;
-  const speaking = useSpeaking(f.self ? null : f.stream, !f.muted);
+  const speaking = useVoice(f.self ? '' : f.id);
   return <div className={`game-face ${speaking ? 'speaking' : ''} ${f.self ? 'self' : ''}`}>
     {show ? <VideoEl stream={f.stream!} muted /> : <span className="center" style={{ position: 'absolute', inset: 0 }}><Avatar name={f.name} size={44} /></span>}
     <span className="game-face-name">{f.self ? 'You' : firstName(f.name)}{f.muted && <Icon name="micOff" size={12} />}</span>
@@ -593,16 +775,26 @@ export function Stage({ others, connected, video, title, status, ringing, layout
   }
   const cols = n === 1 ? 1 : n <= 4 ? 2 : 3;
   const ordered = pinned ? [...others.filter(p => p.id === pinned), ...others.filter(p => p.id !== pinned)] : others;
-  return <div className="call-stage" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, ${n === 1 ? 'min(1100px, 100%)' : '520px'}))` }}>
+  return <div className={`call-stage${n === 1 ? ' solo' : ''}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, ${n === 1 ? 'min(1100px, 100%)' : '520px'}))` }}>
     {ordered.map(p => <PeerTile key={p.id} p={p} video={video} pinned={pinned === p.id} onPin={pin ? () => pin(p.id) : undefined} />)}
   </div>;
 }
 function PeerTile({ p, video, pinned, onPin }: { p: PeerView; video: boolean; pinned?: boolean; onPin?: () => void }) {
-  const speaking = useSpeaking(p.stream, !p.muted);
-  const showVideo = video && p.stream && !p.cameraOff && p.stream.getVideoTracks().length > 0;
-  return <div className={`tile ${speaking ? 'speaking' : ''}`}>
-    {showVideo ? <VideoEl stream={p.stream!} muted remote /> : <div className="col gap-8" style={{ alignItems: 'center' }}><Avatar name={p.name} size={92} /><span className="small muted">{p.state === 'connected' ? (video ? 'Camera off' : 'On the call') : 'Connecting…'}</span></div>}
+  const speaking = useVoice(p.id);
+  const showVideo = video && !!p.stream && !p.cameraOff && p.stream.getVideoTracks().length > 0;
+  // Width / height of their picture once its first frame is here (0 before). Until then their photo covers the
+  // tile (and then fades away), so it never flashes black; a tall picture (a phone held upright) gets a tall tile
+  // instead of black bars.
+  // (A picture that is already running, e.g. when the call view is minimised and this tile is drawn anew, shows at once.)
+  const [ratio, setRatio] = useState(() => { const t = showVideo ? p.stream!.getVideoTracks()[0] : null; const q = t && !t.muted ? t.getSettings() : null; return q?.width && q.height ? q.width / q.height : 0; });
+  useEffect(() => { if (!showVideo) setRatio(0); }, [showVideo]);
+  const live = showVideo && ratio > 0;
+  const tall = live && ratio < 0.9;
+  return <div className={`tile ${speaking ? 'speaking' : ''}${tall ? ' tall' : ''}`} style={tall ? { '--ar': ratio } as React.CSSProperties : undefined}>
+    {showVideo && <VideoEl stream={p.stream!} muted remote onPicture={setRatio} veiled={!live} />}
+    <div className={`tile-wait${live ? ' gone' : ''}`}><Avatar name={p.name} size={92} /><span className="small muted">{p.state === 'connected' ? (showVideo ? 'Starting video…' : video ? 'Camera off' : 'On the call') : p.state === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}</span></div>
     <span className="name">{p.muted && <Icon name="micOff" size={13} />}{firstName(p.name)}</span>
+    {p.weak && p.state === 'connected' && <span className="tile-net"><i />Weak connection</span>}
     {onPin && <button className={`float-pin tile-pin ${pinned ? 'on' : ''}`} onClick={onPin} aria-label={pinned ? `Unpin ${firstName(p.name)}` : `Pin ${firstName(p.name)} as the big picture`} title={pinned ? 'Unpin' : 'Pin as the big picture'}><Icon name="star" size={14} fill={pinned} /></button>}
   </div>;
 }
@@ -652,14 +844,22 @@ function MiniCall({ others, spotId, onPin, self, status, title, onOpen, controls
   </div>;
 }
 function PillFace({ p, big, onPick }: { p: PeerView; big: boolean; onPick: () => void }) {
-  const speaking = useSpeaking(p.stream, !p.muted);
+  const speaking = useVoice(p.id);
   return <button className={`pill-face ${speaking ? 'speaking' : ''} ${big ? 'big' : ''}`} onClick={onPick} aria-label={`Make ${firstName(p.name)} big`} title={firstName(p.name)}><Avatar name={p.name} size={30} /></button>;
 }
-function VideoEl({ stream, muted, remote }: { stream: MediaStream; muted?: boolean; remote?: boolean }) {
+function VideoEl({ stream, muted, remote, onPicture, veiled }: { stream: MediaStream; muted?: boolean; remote?: boolean; /** Loaded and playing but not drawn yet. */ veiled?: boolean; /** Called with width / height when the first frame arrives and when the picture's shape changes. */ onPicture?: (ratio: number) => void }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const tell = useRef(onPicture); tell.current = onPicture;
   useEffect(() => { if (ref.current && ref.current.srcObject !== stream) { ref.current.srcObject = stream; void ref.current.play().catch(() => {}); } }, [stream]);
+  // Say when the first frame is here, and its shape (the tile shows the person's photo until then).
+  useEffect(() => {
+    const v = ref.current; if (!v || !tell.current) return;
+    const frame = () => { if (v.videoWidth && v.videoHeight) tell.current?.(v.videoWidth / v.videoHeight); };
+    frame(); v.addEventListener('loadeddata', frame); v.addEventListener('resize', frame);
+    return () => { v.removeEventListener('loadeddata', frame); v.removeEventListener('resize', frame); };
+  }, [stream]);
   // Safari: the other person's video floats by itself when you leave the tab.
-  return <video ref={ref} autoPlay playsInline muted={muted} data-remote={remote ? '' : undefined} {...(remote ? { autopictureinpicture: '' } : {})} />;
+  return <video ref={ref} autoPlay playsInline muted={muted} style={veiled ? { visibility: 'hidden' } : undefined} data-remote={remote ? '' : undefined} {...(remote ? { autopictureinpicture: '' } : {})} />;
 }
 /** The floating call: one big face (pinned, or whoever is speaking) or everyone. Used in picture-in-picture and over full-screen video. */
 export function CallFloat({ others, video, local, cameraOff, muted, status, big, onBig, pinned, onPin, speaker, connected, busy, onMute, onCamera, onEnd }: {
@@ -700,29 +900,6 @@ function FloatTile({ p, video, pinned, speaking, onPin, onPick }: { p: PeerView;
     {onPin && <button className={`float-pin ${pinned ? 'on' : ''}`} onClick={onPin} aria-label={pinned ? `Unpin ${firstName(p.name)}` : `Pin ${firstName(p.name)} as the big face`}><Icon name="star" size={13} fill={pinned} /></button>}
   </div>;
 }
-/** Who is talking right now (loudest voice), held briefly so the big face doesn't flicker. Timers, not animation
- * frames, so it keeps working while the tab is in the background (picture-in-picture). */
-function useActiveSpeaker(peers: PeerView[]) {
-  const [id, setId] = useState<string | null>(null);
-  const key = peers.map(p => `${p.id}:${p.stream?.id || ''}`).join(',');
-  useEffect(() => {
-    const list = peers.filter(p => p.stream && p.stream.getAudioTracks().length);
-    if (list.length < 2) { setId(list[0]?.id ?? null); return; }
-    let ctx: AudioContext; try { ctx = new AudioContext(); } catch { return; }
-    const meters = list.map(p => { const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(p.stream!).connect(an); return { id: p.id, an, buf: new Uint8Array(512) }; });
-    let current: string | null = null; let since = 0;
-    const t = setInterval(() => {
-      let best: string | null = null; let bestLevel = 0.04;
-      for (const m of meters) { m.an.getByteTimeDomainData(m.buf); let sum = 0; for (const v of m.buf) { const d = (v - 128) / 128; sum += d * d; } const level = Math.sqrt(sum / m.buf.length); if (level > bestLevel) { bestLevel = level; best = m.id; } }
-      const now = Date.now();
-      if (best && best !== current && now - since > 1500) { current = best; since = now; setId(best); }
-    }, 250);
-    return () => { clearInterval(t); void ctx.close(); };
-    // Re-wire only when the people or their streams change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  return id;
-}
 /** Remote voices play through hidden audio elements so they keep going when the call window is minimised. */
 function RemoteAudio({ stream, sinkId }: { stream: MediaStream | null; sinkId: string }) {
   const ref = useRef<HTMLAudioElement>(null);
@@ -731,33 +908,33 @@ function RemoteAudio({ stream, sinkId }: { stream: MediaStream | null; sinkId: s
   useEffect(() => { const el = ref.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null; if (el?.setSinkId && canPickSpeaker) void el.setSinkId(sinkId).catch(() => {}); }, [sinkId]);
   return <audio ref={ref} autoPlay />;
 }
-function useSpeaking(stream: MediaStream | null, enabled: boolean) {
-  const [on, setOn] = useState(false);
-  useEffect(() => {
-    if (!stream || !enabled || !stream.getAudioTracks().length) { setOn(false); return; }
-    const ctx = new AudioContext(); const src = ctx.createMediaStreamSource(stream); const an = ctx.createAnalyser(); an.fftSize = 512; src.connect(an);
-    const buf = new Uint8Array(an.fftSize); let raf = 0; let last = false; let quietSince = 0;
-    const tick = () => { an.getByteTimeDomainData(buf); let sum = 0; for (const v of buf) { const d = (v - 128) / 128; sum += d * d; } const loud = Math.sqrt(sum / buf.length) > 0.045;
-      const now = performance.now(); if (loud) quietSince = now; const next = loud || now - quietSince < 350; if (next !== last) { last = next; setOn(next); } raf = requestAnimationFrame(tick); };
-    tick();
-    return () => { cancelAnimationFrame(raf); void ctx.close(); };
-  }, [stream, enabled]);
-  return on;
+/** Call sounds, made in the browser (no audio files): soft bell-like notes — a rising phrase when someone calls,
+ *  a quiet two-note hum while you wait, a short "up" when the call connects and a "down" when it ends. */
+let toneCtx: AudioContext | null = null;
+function tones() {
+  try { if (!toneCtx || toneCtx.state === 'closed') toneCtx = new AudioContext(); void toneCtx.resume().catch(() => {}); return toneCtx; } catch { return null; }
 }
-/** Simple synthesized tones (no audio files): a ringtone for incoming calls, ringback while calling out. */
-function beeper(pattern: { f: number[]; on: number; off: number }) {
-  let ctx: AudioContext | null = null; let stopped = false; let timer: ReturnType<typeof setTimeout>;
-  try { ctx = new AudioContext(); } catch { return { stop() {} }; }
-  const ring = () => {
-    if (stopped || !ctx) return;
-    const g = ctx.createGain(); g.gain.value = 0.0001; g.connect(ctx.destination);
-    const oscs = pattern.f.map(f => { const o = ctx!.createOscillator(); o.frequency.value = f; o.connect(g); o.start(); return o; });
-    const t = ctx.currentTime; g.gain.exponentialRampToValueAtTime(0.08, t + 0.04); g.gain.setValueAtTime(0.08, t + pattern.on / 1000 - 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + pattern.on / 1000);
-    oscs.forEach(o => o.stop(t + pattern.on / 1000 + 0.02));
-    timer = setTimeout(ring, pattern.on + pattern.off);
-  };
-  ring();
-  return { stop() { stopped = true; clearTimeout(timer); void ctx?.close(); } };
+type Note = [hz: number, at: number, length: number];
+function bells(ctx: AudioContext, notes: Note[], peak: number, out: AudioNode) {
+  const t0 = ctx.currentTime + 0.03;
+  for (const [hz, at, length] of notes) {
+    const g = ctx.createGain(); g.connect(out);
+    g.gain.setValueAtTime(0.0001, t0 + at); g.gain.exponentialRampToValueAtTime(peak, t0 + at + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + length);
+    // The note and two quiet overtones: rounder than a plain beep.
+    for (const [times, share] of [[1, 1], [2, 0.26], [3, 0.07]]) { const o = ctx.createOscillator(); const og = ctx.createGain(); og.gain.value = share; o.frequency.value = hz * times; o.connect(og); og.connect(g); o.start(t0 + at); o.stop(t0 + at + length + 0.05); }
+  }
 }
-const ringtone = () => beeper({ f: [660, 880], on: 900, off: 1100 });
-const ringback = () => beeper({ f: [440, 480], on: 1200, off: 2800 });
+function chime(notes: Note[], peak: number) { const ctx = tones(); if (ctx) bells(ctx, notes, peak, ctx.destination); }
+function looping(notes: Note[], everyMs: number, peak: number) {
+  const ctx = tones(); if (!ctx) return { stop() {} };
+  const out = ctx.createGain(); out.connect(ctx.destination);
+  let stopped = false; let timer: ReturnType<typeof setTimeout>;
+  const again = () => { if (stopped) return; bells(ctx, notes, peak, out); timer = setTimeout(again, everyMs); };
+  again();
+  // Stopping fades what is still ringing (answering mid-phrase shouldn't leave it playing).
+  return { stop() { if (stopped) return; stopped = true; clearTimeout(timer); try { out.gain.setTargetAtTime(0, ctx.currentTime, 0.03); } catch { /* closed */ } setTimeout(() => { try { out.disconnect(); } catch { /* gone */ } }, 300); } };
+}
+const ringtone = () => looping([[659.25, 0, 0.9], [830.61, 0.17, 0.9], [987.77, 0.34, 0.9], [1318.51, 0.51, 1.3], [987.77, 1.05, 0.7], [1318.51, 1.22, 1.4]], 3000, 0.09);
+const ringback = () => looping([[440, 0, 1.2], [554.37, 0.03, 1.2]], 3200, 0.045);
+const connectSound = () => chime([[587.33, 0, 0.5], [880, 0.11, 0.8]], 0.07);
+const endSound = () => chime([[659.25, 0, 0.4], [440, 0.13, 0.7]], 0.06);

@@ -26,7 +26,7 @@ function Bits({ n, cls, salt = 1 }: { n: number; cls: string; salt?: number }) {
   return <>{Array.from({ length: n }, (_, i) => <i key={i} className={cls} style={{ '--x': rnd(i, salt), '--y': rnd(i, salt + 1), '--s': rnd(i, salt + 2), '--t': rnd(i, salt + 3) } as CSSProperties}><b /></i>)}</>;
 }
 // One full-screen triangle and a fragment shader. Drawn small and stretched (the scenes are soft), about 30 times a
-// second, paused while the tab is hidden. Without WebGL the scene's plain CSS background shows instead.
+// second, paused while the tab is hidden or the full call view covers the page. Without WebGL the scene's plain CSS background shows instead.
 function Shader({ frag, scale = .5 }: { frag: string; scale?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -51,7 +51,7 @@ function Shader({ frag, scale = .5 }: { frag: string; scale?: number }) {
     };
     let raf = 0, last = 0; const t0 = performance.now();
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { frame(40); const again = () => frame(40); window.addEventListener('resize', again); return () => window.removeEventListener('resize', again); }
-    const loop = (now: number) => { raf = requestAnimationFrame(loop); if (document.hidden || now - last < 32) return; last = now; frame(40 + (now - t0) / 1000); };
+    const loop = (now: number) => { raf = requestAnimationFrame(loop); if (document.hidden || document.documentElement.dataset.callOpen !== undefined || now - last < 32) return; last = now; frame(40 + (now - t0) / 1000); };
     raf = requestAnimationFrame(loop);
     return () => { cancelAnimationFrame(raf); gl.getExtension('WEBGL_lose_context')?.loseContext(); };
   }, [frag, scale]);
