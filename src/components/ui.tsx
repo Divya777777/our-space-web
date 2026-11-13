@@ -35,7 +35,7 @@ function sheetHost(): Element {
   const fs = document.fullscreenElement;
   return fs && !/^(VIDEO|IFRAME|CANVAS|IMG)$/.test(fs.tagName) ? fs : document.body;
 }
-export function Sheet({ title, sub, onClose, children, footer, wide, back }: React.PropsWithChildren<{ title: React.ReactNode; sub?: React.ReactNode; onClose: () => void; footer?: React.ReactNode; wide?: boolean; back?: () => void }>) {
+export function Sheet({ title, sub, onClose, children, footer, wide, xl, back }: React.PropsWithChildren<{ title: React.ReactNode; sub?: React.ReactNode; onClose: () => void; footer?: React.ReactNode; wide?: boolean; /** Nearly full screen (games with a canvas). */ xl?: boolean; back?: () => void }>) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
@@ -49,7 +49,7 @@ export function Sheet({ title, sub, onClose, children, footer, wide, back }: Rea
   }, []);
   // On top of the whole page: panels with backdrop-filter would otherwise trap a fixed sheet inside them.
   return createPortal(<div className="scrim" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-    <div ref={box} className={`sheet ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} tabIndex={-1}>
+    <div ref={box} className={`sheet ${wide ? 'wide' : ''}${xl ? ' xl' : ''}`} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} tabIndex={-1}>
       <div className="sheet-head">
         {back && <IconButton icon="back" label="Back" size="sm" variant="plain" onClick={back} />}
         <div className="grow"><h2 className="h2">{title}</h2>{sub && <p className="small muted">{sub}</p>}</div>

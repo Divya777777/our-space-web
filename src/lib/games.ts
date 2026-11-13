@@ -3,6 +3,7 @@ export type Stroke = { id: string; c: string; s: number; p: [number, number][] }
 export type ScribbleView = {
   version: number; drawer: string; drawerName: string; round: number; rounds: number; phase: 'drawing' | 'guessing' | 'solved' | 'timeup' | 'over';
   word: string | null; length: number; msLeft: number; strokes: Stroke[]; guesses: { by: string; name: string; text: string; ok: boolean }[]; pts: Record<string, number>; solvedBy: string | null;
+  /** Newer servers: letters shown as hints (from the start of the word), for everyone. */ hints?: number; hint?: string;
   /** Newer servers: everyone in this game (scoreboard). */ players?: { id: string; name: string; pts: number; here: boolean }[];
 };
 export type Turn = { id: string; from: string; fromName: string; at: number; strokes: Stroke[]; length: number; hints: number; tries: string[]; solved: boolean; word: string; expired?: boolean; msLeft?: number; started?: boolean };

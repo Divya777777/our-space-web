@@ -307,6 +307,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     await sendTo(person.id, 'answer', { description: peer.pc.localDescription!.toJSON() }, target);
   }
   async function start(code: string, members: CallPeer[], video: boolean, title: string) {
+    // They're already calling you from this room: calling them back answers their call.
+    if (callRef.current && phaseRef.current === 'incoming' && callRef.current.code === code) { void accept(); return; }
     if (callRef.current) { setExpanded(true); return; }
     // Never ring someone you blocked; the rest of the room still gets the call.
     members = members.filter(m => !isBlockedId(blockedNow(), m.id));
@@ -373,6 +375,16 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       if (signal.sentAt && Date.now() - signal.sentAt > 45000) return;
       if (isBlockedId(blockedNow(), signal.from)) return; // blocked: never rings
       if (callRef.current?.id === callId) return;
+      // Both of you pressed call at the same moment (each is still ringing the other): keep one call. Everyone
+      // agrees on which — the call from the lower ID — so that side keeps ringing and the other side drops its own
+      // call and answers it at once. No one sees "busy" and no one is left ringing.
+      let crossed = false;
+      const mine = callRef.current;
+      if (mine && mine.mine && mine.code === signal.code && (phaseRef.current === 'outgoing' || phaseRef.current === 'connecting')
+        && mine.members.some(m => m.id === signal.from) && ![...peers.current.values()].some(p => p.live)) {
+        if (latest.current.user.id < signal.from) return; // ours is the one kept: they answer it
+        finish(true); crossed = true; // tells them to stop ringing for our call (they ignore it: theirs is kept)
+      }
       if (callRef.current) { await latest.current.signalCall(signal.code, signal.from, 'reject', { reason: 'busy', callId }); return; }
       const offer = signal.payload.offer as Description | undefined;
       const room = latest.current.rooms.find(r => r.code === signal.code);
@@ -386,6 +398,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       };
       live.current = new Set([from.id]); helloed.current.clear();
       select(target); transition('incoming'); setExpanded(true); setError('');
+      if (crossed) { void accept(); return; }
       tone.current = ringtone();
       if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
         const n = new Notification(group ? `${from.name} is calling ${target.title}` : `${from.name} is calling`, { body: target.video ? 'Video call · Our Space' : 'Voice call · Our Space', icon: `${import.meta.env.BASE_URL}icon-192.png`, tag: 'call-' + target.id, requireInteraction: true });

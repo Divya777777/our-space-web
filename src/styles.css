@@ -197,6 +197,35 @@ textarea.input { height: auto; padding: 12px 16px; resize: vertical; min-height:
 .scrim { position: fixed; inset: 0; z-index: 100; background: rgba(3, 5, 12, .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: grid; place-items: center; padding: 20px; animation: fade .2s var(--ease); }
 .sheet { width: min(520px, 100%); max-height: min(86vh, 860px); display: flex; flex-direction: column; border-radius: 28px; background: var(--glass-strong); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border: 1px solid var(--edge); box-shadow: var(--depth), inset 0 1px 0 var(--edge-lit); animation: rise .28s var(--ease); }
 .sheet.wide { width: min(760px, 100%); }
+/* Games with a canvas: nearly the whole screen. */
+.sheet.xl { width: min(1240px, 100%); max-height: 96vh; }
+.sheet.xl .sheet-body { gap: 14px; }
+/* Scribble: the canvas as big as the window allows (it keeps its shape, so lines look the same for everyone),
+   with faces, players, guesses and the guess box beside it. One column on small screens. */
+/* Scribble: the word and timer, the drawing, then the guesses right under it. */
+.scribble { display: flex; flex-direction: column; gap: 12px; }
+.scribble-side { width: min(100%, calc((96vh - 330px) * 342 / 300)); margin: 0 auto; }
+.scribble-main > .row.between { width: min(100%, calc((96vh - 330px) * 342 / 300)); margin: 0 auto; }
+.scribble-main, .scribble-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.sheet.xl .paper { width: min(100%, calc((96vh - 330px) * 342 / 300)); margin: 0 auto; }
+/* Games on a call: the game on the left, everyone's video in one column down the right, the window's full height.
+   The faces split that height equally (smaller as more people join; two across from 7 people). */
+.sheet.xl:has(.game-rail) { height: 96vh; }
+.sheet.xl:has(.game-rail) .sheet-body { flex: 1; min-height: 0; overflow: hidden; padding-bottom: 16px; }
+.game-layout { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(180px, 17vw, 250px); gap: 18px; }
+.game-main { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-right: 4px; }
+.game-rail { min-height: 0; display: flex; }
+.game-rail .game-faces { flex: 1; min-height: 0; }
+.game-rail .game-faces-grid { flex: 1; min-height: 0; grid-template-columns: 1fr !important; grid-auto-rows: minmax(0, 1fr); }
+.game-rail .game-faces.n6 .game-faces-grid:has(> :nth-child(7)) { grid-template-columns: 1fr 1fr !important; }
+.game-rail .game-face { aspect-ratio: auto; height: 100%; min-height: 0; }
+@media (max-width: 900px) {
+  .sheet.xl .paper, .scribble-side, .scribble-main > .row.between { width: 100%; }
+  /* Narrow windows: the faces become a strip across the top instead. */
+  .sheet.xl:has(.game-rail) { height: auto; } .sheet.xl:has(.game-rail) .sheet-body { overflow-y: auto; }
+  .game-layout { display: flex; flex-direction: column-reverse; height: auto; } .game-main { overflow: visible; }
+  .game-rail .game-faces-grid { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)) !important; grid-auto-rows: 96px; }
+}
 .sheet-head { display: flex; align-items: center; gap: 12px; padding: 20px 20px 8px 24px; }
 .sheet-body { padding: 8px 24px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
 .sheet-foot { padding: 12px 24px 22px; display: flex; flex-direction: column; gap: 8px; }
@@ -1034,19 +1063,20 @@ html[data-room-theme='kirakira'] .call-join { background: #fff; border: 2px soli
 html[data-room-theme='kirakira'] .call-join-icon { background: #00B3A4; color: #fff; }
 
 /* Games on a call: everyone's face in a grid above the game (Call.tsx GameFaces). */
-.game-faces { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 18px; background: #10142A; border: 1px solid rgba(255, 255, 255, .08); }
+/* The faces fill the whole width of their panel: no empty strip beside or between them. */
+.game-faces { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 18px; background: #0B0F1E; border: 1px solid rgba(255, 255, 255, .08); }
 .game-faces-grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 .game-faces.n2 .game-faces-grid { grid-template-columns: 1fr 1fr; }
 .game-faces.n3 .game-faces-grid { grid-template-columns: repeat(3, 1fr); }
 .game-faces.n4 .game-faces-grid { grid-template-columns: repeat(4, 1fr); }
-.game-face { position: relative; aspect-ratio: 4 / 3; max-height: 150px; border-radius: 12px; overflow: hidden; background: #141a2b; box-shadow: inset 0 0 0 2px transparent; transition: box-shadow .2s; }
+.game-face { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #141a2b; box-shadow: inset 0 0 0 2px transparent; transition: box-shadow .2s; }
 .game-face.speaking { box-shadow: inset 0 0 0 2px var(--mint, #B6DDCF), 0 0 18px -4px rgba(182, 221, 207, .6); }
 .game-face video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .game-face.self video { transform: scaleX(-1); }
 .game-face-name { position: absolute; left: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; background: rgba(0, 0, 0, .5); }
 .game-faces-bar { display: flex; align-items: center; gap: 6px; color: #F4F1EA; }
 .game-faces-bar .muted { color: #C9CEDB; }
-@media (max-width: 640px) { .game-faces-grid { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)) !important; } .game-face { max-height: 96px; } }
+@media (max-width: 640px) { .game-faces-grid { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)) !important; } .game-face { aspect-ratio: 4 / 3; } }
 
 /* "Kabir started Scribble · Join": shown on any tab while you're on the call. */
 .game-invite { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 20px; width: min(460px, calc(100vw - 32px)); border: 1px solid rgba(200, 182, 255, .4); box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .6); animation: gameInviteIn .4s var(--ease, ease) both; }

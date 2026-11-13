@@ -3,6 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSpace } from '../lib/space';
 import { GamesApi, Hub, QuizAsk, QuizQuestion, QuizState, ScribbleView, Stroke, TdView, Turn, liveGames } from '../lib/games';
 import { GameFaces, useCall } from './Call';
+
+/** A game window. On a call, everyone's video sits in one column down the side, the full height of the window:
+ *  the faces share that height equally and get smaller as more people join. The game has the rest. */
+function GameSheet({ children, ...props }: React.ComponentProps<typeof Sheet>) {
+  const call = useCall();
+  if (call.faces.length < 2) return <Sheet {...props} xl>{children}</Sheet>;
+  return <Sheet {...props} xl wide={false}><div className="game-layout"><div className="game-main">{children}</div><aside className="game-rail" aria-label="Everyone on the call"><GameFaces /></aside></div></Sheet>;
+}
 import { Avatar, Button, Notice, Sheet, ago, firstName, useToast } from './ui';
 import { Icon, IconName } from './Icon';
 
@@ -121,31 +129,39 @@ function LiveScribble({ api, onClose }: { api: GamesApi; onClose: () => void }) 
   const myId = space.user.id; const drawer = view.drawer === myId; const myPts = view.pts[myId] || 0;
   const nameFor = (id: string) => space.rooms.flatMap(r => r.members).find(m => m.id === id)?.name || view.guesses.find(g => g.by === id)?.name || (view.drawer === id ? view.drawerName : 'Player');
   const endGame = <Button variant="secondary" icon="x" onClick={() => { void act({ action: 'end' }); onClose(); }}>End game for everyone</Button>;
-  if (view.phase === 'over') return <Sheet title="Scribble" sub="Game over" wide onClose={leave}>
-    <GameFaces />
+  if (view.phase === 'over') return <GameSheet title="Scribble" sub="Game over" onClose={leave}>
     <div className="inset col gap-8" style={{ padding: 28, alignItems: 'center' }}><span className="gold"><Icon name="trophy" size={40} /></span><p className="title">{Object.entries(view.pts).length ? Object.entries(view.pts).sort((a, b) => b[1] - a[1]).map(([id, v]) => `${firstName(id === myId ? space.user.name : nameFor(id))} ${v}`).join(' · ') : `${firstName(space.user.name)} ${myPts}`}</p><p className="small muted">Points are added to this month’s scores.</p></div>
     <Button onClick={() => void act({ action: 'start' })}>{drawer ? 'Play again' : 'Draw the next game'}</Button><Button variant="secondary" onClick={() => { void act({ action: 'end' }); onClose(); }}>Back to games</Button>
-  </Sheet>;
+  </GameSheet>;
   const solver = view.guesses.find(g => g.ok);
   const next = (view.phase === 'solved' || view.phase === 'timeup') && <Button size="sm" onClick={() => void act({ action: 'next' })}>{view.round >= view.rounds ? 'See results' : 'Next round'}</Button>;
-  return <Sheet title="Scribble" sub={`Round ${view.round} of ${view.rounds} · ${drawer ? 'you draw' : `${firstName(view.drawerName)} draws`}`} wide onClose={leave} footer={endGame}>
-    <GameFaces />
-    <div className="row between">{drawer || view.word ? <div><p className="tiny muted">{drawer ? 'Your word · only you see it' : 'The word was'}</p><p className="title" style={{ letterSpacing: '.08em' }}>{(view.word || '').toUpperCase()}</p></div> : <div className="letters">{Array.from({ length: view.length }, (_, i) => <span key={i} />)}</div>}
-      <Countdown ms={view.msLeft} running={(view.phase === 'drawing' || view.phase === 'guessing') && view.strokes.length > 0} /></div>
+  const playing = view.phase === 'drawing' || view.phase === 'guessing';
+  // Hints: letters from the start of the word, the same for every guesser (servers that have them send `hints`).
+  const hints = view.hints ?? 0; const hintable = typeof view.hints === 'number';
+  return <GameSheet title="Scribble" sub={`Round ${view.round} of ${view.rounds} · ${drawer ? 'you draw' : `${firstName(view.drawerName)} draws`}`} onClose={leave} footer={endGame}>
+    <div className="scribble">
+    <div className="scribble-main">
+    <div className="row between">{drawer || view.word ? <div><p className="tiny muted">{drawer ? `Your word · only you see it${hints ? ` · ${hints} letter${hints > 1 ? 's' : ''} shown as a hint` : ''}` : 'The word was'}</p><p className="title" style={{ letterSpacing: '.08em' }}>{(view.word || '').toUpperCase()}</p></div> : <div className="letters">{Array.from({ length: view.length }, (_, i) => <span key={i}>{view.hint?.[i] || ''}</span>)}</div>}
+      <div className="row gap-12">{!drawer && playing && hintable && <Button size="sm" variant="secondary" icon="bulb" title="Shows the next letter to every guesser" disabled={hints >= view.length - 1 || !view.strokes.length} onClick={() => void act({ action: 'hint' })}>Show a letter</Button>}<Countdown ms={view.msLeft} running={playing && view.strokes.length > 0} /></div></div>
+    <Canvas strokes={view.strokes} color={color} size={size} onStroke={drawer && view.phase === 'drawing' ? (s, final) => { void api.scribbleAction({ action: 'stroke', stroke: s }).then(v => { if (final) setView(v); }).catch(() => {}); } : undefined} />
+    {drawer && view.phase === 'drawing' && <Tools color={color} setColor={setColor} size={size} setSize={setSize} onUndo={() => void act({ action: 'undo' })} onClear={() => void act({ action: 'clear' })} />}
+    </div>
+    <div className="scribble-side">
     {(view.players?.length ?? 0) > 2 && <div className="scoreboard" aria-label="Players">
       {[...view.players!].sort((a, b) => b.pts - a.pts).map(p => <span key={p.id} className={`score-chip ${p.id === view.drawer ? 'drawing' : ''} ${p.here ? '' : 'away'}`}>
         <Avatar name={p.name} size={24} /><span>{p.id === myId ? 'You' : firstName(p.name)}</span><b>{p.pts}</b>{p.id === view.drawer && <Icon name="pencil" size={13} />}{view.guesses.some(g => g.by === p.id && g.ok) && <Icon name="check" size={13} />}
       </span>)}
     </div>}
-    <Canvas strokes={view.strokes} color={color} size={size} onStroke={drawer && view.phase === 'drawing' ? (s, final) => { void api.scribbleAction({ action: 'stroke', stroke: s }).then(v => { if (final) setView(v); }).catch(() => {}); } : undefined} />
-    {drawer && view.phase === 'drawing' && <Tools color={color} setColor={setColor} size={size} setSize={setSize} onUndo={() => void act({ action: 'undo' })} onClear={() => void act({ action: 'clear' })} />}
     <div className="chips">{view.guesses.length ? view.guesses.map((g, i) => <span key={i} className={`tag ${g.ok ? 'mint' : 'plain'}`} style={{ height: 28, fontSize: 13 }}>{g.by === myId ? 'You' : firstName(g.name)}: {g.text}</span>) : <span className="small muted">{drawer ? 'The others see your lines live and type guesses.' : 'Type what you think it is.'}</span>}</div>
     {drawer && view.phase === 'drawing' && <div className="row gap-8"><Button variant="secondary" onClick={() => void act({ action: 'skip' })}>Skip word</Button><Button icon="check" disabled={!view.strokes.length} onClick={() => void act({ action: 'done' })}>Done drawing</Button></div>}
     {drawer && view.phase === 'guessing' && <Notice>They’re guessing. Drawing is locked until the timer ends.</Notice>}
-    {!drawer && (view.phase === 'drawing' || view.phase === 'guessing') && <GuessBox autoFocus onGuess={t => void act({ action: 'guess', text: t })} />}
+    {!drawer && playing && <GuessBox autoFocus onGuess={t => void act({ action: 'guess', text: t })} />}
+
     {view.phase === 'solved' && <div className="row inset" style={{ padding: 12 }}><span className="mint"><Icon name="check" /></span><span className="grow">{solver ? (solver.by === myId ? 'You' : firstName(solver.name)) : 'Someone'} got it — “{view.word}”. +2 each.</span>{next}</div>}
     {view.phase === 'timeup' && <div className="row inset" style={{ padding: 12 }}><span className="rose"><Icon name="clock" /></span><span className="grow">Time’s up — it was “{view.word}”.</span>{next}</div>}
-  </Sheet>;
+    </div>
+    </div>
+  </GameSheet>;
 }
 function DrawAndSend({ api, partner, onClose }: { api: GamesApi; partner: string; onClose: () => void }) {
   const toast = useToast();
@@ -153,7 +169,7 @@ function DrawAndSend({ api, partner, onClose }: { api: GamesApi; partner: string
   const [color, setColor] = useState(COLORS[0]); const [size, setSize] = useState(5); const [busy, setBusy] = useState(false);
   const newWord = useCallback((skip?: string) => { void api.drawWord(skip).then(w => { setWord(w); setStrokes([]); }).catch(e => toast(nice(e), { tone: 'error' })); }, [api, toast]);
   useEffect(() => { newWord(); }, [newWord]);
-  return <Sheet title="Scribble" sub={`Draw it · ${partner} guesses later`} wide onClose={onClose}
+  return <Sheet title="Scribble" sub={`Draw it · ${partner} guesses later`} xl onClose={onClose}
     footer={<Button block icon="send" busy={busy} disabled={!strokes.length || !word} onClick={async () => { setBusy(true); try { await api.sendDrawing(word!, strokes); toast(`Sent — ${partner} guesses when they’re free.`, { icon: 'send' }); onClose(); } catch (e) { toast(nice(e), { tone: 'error' }); } finally { setBusy(false); } }}>Send to {partner}</Button>}>
     <div className="row between"><div><p className="tiny muted">Your word · only you see it</p><p className="title" style={{ letterSpacing: '.08em' }}>{word ? word.toUpperCase() : '…'}</p></div><Button size="sm" variant="secondary" onClick={() => newWord(word || undefined)}>New word</Button></div>
     <Canvas strokes={strokes} color={color} size={size} onStroke={(s, final) => { if (final) setStrokes(l => [...l.filter(x => x.id !== s.id), s]); }} />
@@ -169,7 +185,7 @@ function GuessTurn({ api, id, onClose, onDraw }: { api: GamesApi; id: string; on
   const act = async (body: Record<string, unknown>) => { try { setTurn((await api.turnAction(id, body)).turn); } catch (e) { toast(nice(e), { tone: 'error' }); } };
   if (!turn) return <Sheet title="Scribble" wide onClose={onClose}><p className="muted">Opening the drawing…</p></Sheet>;
   const over = turn.expired || (timeUp && !turn.solved);
-  return <Sheet title="Scribble" sub={`${firstName(turn.fromName)}’s drawing · ${ago(turn.at)}`} wide onClose={onClose}>
+  return <Sheet title="Scribble" sub={`${firstName(turn.fromName)}’s drawing · ${ago(turn.at)}`} xl onClose={onClose}>
     {!turn.solved && !over && <div className="row" style={{ justifyContent: 'flex-end' }}><Countdown ms={turn.msLeft ?? 60000} running /></div>}
     <Canvas strokes={turn.strokes} />
     <div className="letters" style={{ justifyContent: 'center' }}>{Array.from({ length: turn.length }, (_, i) => <span key={i}>{turn.word[i] || ''}</span>)}</div>
@@ -196,8 +212,7 @@ function TruthDare({ api, onClose }: { api: GamesApi; onClose: () => void }) {
   const myId = space.user.id; const mine = view.turn === myId; const asked = view.spicyAsked.includes(myId); const card = view.card;
   const askerMe = card?.asker === myId;
   const asker = card?.askerName && card.asker ? firstName(card.askerName) : '';
-  return <Sheet title="Truth or Dare" sub="Best on a call. Nothing is recorded." wide onClose={leave} footer={<Button variant="secondary" onClick={() => { void act({ action: 'end' }); onClose(); }}>End game</Button>}>
-    <GameFaces />
+  return <GameSheet title="Truth or Dare" sub="Best on a call. Nothing is recorded." onClose={leave} footer={<Button variant="secondary" onClick={() => { void act({ action: 'end' }); onClose(); }}>End game</Button>}>
     <div className="chips">{(['sweet', 'fun'] as const).map(k => <button key={k} className={`chip ${view.decks[k] ? 'on' : ''}`} onClick={() => void act({ action: 'deck', deck: k })}>{k === 'sweet' ? 'Sweet' : 'Fun'}</button>)}
       <button className={`chip ${view.spicyOn ? 'on' : ''}`} onClick={() => void act({ action: 'spicy' })}>{!view.spicyOn && <Icon name="lock" size={14} />}{view.spicyOn ? 'Spicy' : asked ? 'Waiting for the others' : 'Spicy · 18+'}</button></div>
     {!asked && view.spicyAsked.length > 0 && !view.spicyOn && <div className="inset row" style={{ padding: 12 }}><span className="grow small">Someone asked to unlock Spicy (18+). Flirty, never explicit.</span><Button size="sm" onClick={() => void act({ action: 'spicy' })}>Say yes</Button></div>}
@@ -211,7 +226,7 @@ function TruthDare({ api, onClose }: { api: GamesApi; onClose: () => void }) {
           {asker && !askerMe && card.deck !== 'group' && <p className="tiny muted">{/\b(us|our)\b/i.test(card.text) ? `“Us” means ${mine ? 'you' : firstName(view.turnName)} and ${asker}.` : /\b(me|my|mine)\b/i.test(card.text) ? `“Me” means ${asker}.` : ''}</p>}
           {mine ? <div className="row gap-8"><Button onClick={() => void act({ action: 'done' })}>Done — next turn</Button><Button variant="secondary" icon="swap" disabled={!(view.swaps[myId] > 0)} onClick={() => void act({ action: 'swap' })}>Swap ({view.swaps[myId] ?? 0})</Button></div> : <p className="small muted">Waiting for {firstName(view.turnName)} to finish…</p>}</>}
     </div>
-  </Sheet>;
+  </GameSheet>;
 }
 /** Answer 10 questions about someone; they mark which you got right by picking their real answers. Both see the score. */
 function Quiz({ api, onClose, onShare }: { api: GamesApi; onClose: () => void; onShare: (t: string) => Promise<void> }) {

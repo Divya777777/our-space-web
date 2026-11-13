@@ -20,6 +20,7 @@ export default function You() {
   const [del, setDel] = useState(false); const [typed, setTyped] = useState('');
   const [linking, setLinking] = useState(false);
   const [feedback, setFeedback] = useState(false);
+  const [blockedOpen, setBlockedOpen] = useState(false);
   useEffect(() => setName(space.user.name), [space.user.name]);
   const row = (icon: IconName, title: string, sub: string, action?: React.ReactNode, href?: string) => {
     const body = <><span className="center" style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(255,255,255,.06)', flex: 'none' }}><Icon name={icon} /></span><span className="grow"><span className="h3" style={{ display: 'block' }}>{title}</span><span className="small muted">{sub}</span></span>{action}</>;
@@ -52,7 +53,11 @@ export default function You() {
 
     <div className="section-head"><h2 className="h2">Safety and help</h2></div>
     <div className="glass panel list" style={{ padding: 8 }}>
-      {blocked.length > 0 && blocked.map(b => row('shield', b.name, 'Blocked', <Button size="sm" variant="secondary" onClick={() => void unblockUser(space.api, b.id).then(() => toast('Unblocked.'))}>Unblock</Button>))}
+      <button className="list-row" style={{ color: 'var(--text)', width: '100%', textAlign: 'left' }} onClick={() => setBlockedOpen(true)}>
+        <span className="center" style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(255,255,255,.06)', flex: 'none' }}><Icon name="shield" /></span>
+        <span className="grow"><span className="h3" style={{ display: 'block' }}>Blocked members</span><span className="small muted">{blocked.length ? `${blocked.length} ${blocked.length === 1 ? 'person' : 'people'} · no messages or calls either way` : 'No one is blocked'}</span></span>
+        <Icon name="fwd" size={16} />
+      </button>
       {row('bulb', 'Tell us what should be better', 'An idea, a problem, or something you love', <Button size="sm" variant="secondary" onClick={() => setFeedback(true)}>Write a note</Button>)}
       {row('shield', 'Privacy policy', 'What we keep and why', undefined, `${backendUrl}/privacy`)}
       {row('book', 'Terms', 'The rules for using Our Space', undefined, `${backendUrl}/terms`)}
@@ -66,6 +71,20 @@ export default function You() {
 
     {linking && <LinkSheet onClose={() => setLinking(false)} />}
     {feedback && <FeedbackSheet onClose={() => setFeedback(false)} />}
+    {blockedOpen && <Sheet title="Blocked members" sub="Everyone you blocked, in any room. They aren’t told when you block or unblock them." onClose={() => setBlockedOpen(false)}>
+      {blocked.length ? <div className="list">{blocked.map(b => {
+        // The rooms you share with them, so you know who this is.
+        const shared = space.rooms.filter(r => r.members.some(m => m.id === b.id)).map(r => r.name);
+        return <div key={b.id} className="list-row">
+          <Avatar name={b.name} size={40} />
+          <span className="grow" style={{ minWidth: 0 }}><span className="h3 ellipsis" style={{ display: 'block' }}>{b.name}</span><span className="small muted">{shared.length ? `In ${shared.slice(0, 2).join(', ')}${shared.length > 2 ? ` and ${shared.length - 2} more` : ''}` : 'Not in any of your rooms now'}</span></span>
+          <Button size="sm" variant="secondary" onClick={async () => {
+            if (!(await confirm({ title: `Unblock ${b.name}?`, body: 'You’ll see their messages again, and you can call each other.', confirmLabel: 'Unblock' }))) return;
+            try { await unblockUser(space.api, b.id); toast(`${b.name} is unblocked.`); } catch (e) { toast((e as Error).message || 'Couldn’t unblock. Try again.', { tone: 'error' }); }
+          }}>Unblock</Button>
+        </div>;
+      })}</div> : <p className="muted">No one is blocked. You can block someone from a room’s People tab.</p>}
+    </Sheet>}
     {edit && <Sheet title="Your name" sub="The name your people see in rooms, chat and calls." onClose={() => setEdit(false)} footer={<Button block onClick={async () => { setError(''); try { await space.setDisplayName(name); setEdit(false); toast('Name saved.'); } catch (e) { setError((e as Error).message); } }}>Save name</Button>}>
       <input aria-label="Your name" className="input" maxLength={30} value={name} onChange={e => setName(e.target.value)} />{error && <Notice tone="error">{error}</Notice>}
     </Sheet>}
