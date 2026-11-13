@@ -282,6 +282,22 @@ html[data-call-open] .ambient * { animation-play-state: paused !important; }
 .tile-wait.gone { opacity: 0; pointer-events: none; }
 /* What is stacked inside a tile (photo, name, chips) stays inside it, and never sits above the call buttons. */
 .call-layer .tile { isolation: isolate; }
+/* Sharing a screen: the choice of two above the button, the "You're presenting" chip, and screens shown whole
+   (not mirrored, not cropped) on a dark backing. */
+.share-wrap { position: relative; display: flex; }
+.share-menu { position: absolute; bottom: calc(100% + 14px); left: 50%; translate: -50% 0; width: 300px; padding: 6px; border-radius: 18px; display: grid; gap: 2px; background: rgba(20, 24, 42, .97); box-shadow: 0 18px 50px -12px rgba(0, 0, 0, .7); animation: shareUp .18s var(--ease); z-index: 5; }
+@keyframes shareUp { from { opacity: 0; transform: translateY(6px); } }
+.share-menu button { display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 10px 12px; border-radius: 12px; color: var(--text); }
+.share-menu button:hover, .share-menu button:focus-visible { background: rgba(255, 255, 255, .07); }
+.share-menu button svg { flex: none; margin-top: 2px; color: var(--lav); }
+.share-menu b { display: block; font-size: 14px; font-weight: 600; }
+.share-menu small { display: block; margin-top: 2px; font-size: 12px; line-height: 1.35; color: var(--muted); }
+.presenting { display: inline-flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border-radius: 999px; background: rgba(92, 211, 160, .14); color: #A8F0CF; font-size: 13px; font-weight: 600; }
+.presenting i { width: 8px; height: 8px; border-radius: 50%; background: #5CD3A0; animation: livePulse 1.6s ease-in-out infinite; }
+@keyframes livePulse { 50% { opacity: .35; } }
+.presenting button { padding: 4px 12px; border-radius: 999px; background: #5CD3A0; color: #062016; font-weight: 700; font-size: 12px; }
+.tile.screen video, .self-tile.screen video, .my-screen video { object-fit: contain; transform: none; background: #05070D; }
+.self-tile.screen { aspect-ratio: 16 / 10; }
 /* A tall picture (a phone held upright) in a two-person call: the tile takes the picture's shape, no side bars. */
 .call-stage.solo > .tile.tall { aspect-ratio: var(--ar); height: min(calc(100dvh - 230px), 1100px); width: auto; max-width: 100%; justify-self: center; }
 .call-stage.solo > .tile.tall video { object-fit: cover; }

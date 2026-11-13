@@ -17,11 +17,11 @@ type Phase = 'idle' | 'incoming' | 'outgoing' | 'connecting' | 'connected' | 're
 type Candidate = RTCIceCandidateInit;
 type Description = RTCSessionDescriptionInit;
 type ActiveCall = { id: string; code: string; video: boolean; title: string; starter: CallPeer; members: CallPeer[]; offer?: Description; mine: boolean };
-type Peer = { id: string; name: string; pc: RTCPeerConnection; stream: MediaStream | null; channel: RTCDataChannel | null; sender: RTCRtpSender | null; state: 'connecting' | 'connected' | 'reconnecting'; cameraOff: boolean; muted: boolean; out: { ready: boolean; queue: Candidate[]; timer?: ReturnType<typeof setTimeout> };
+type Peer = { id: string; name: string; pc: RTCPeerConnection; stream: MediaStream | null; channel: RTCDataChannel | null; sender: RTCRtpSender | null; state: 'connecting' | 'connected' | 'reconnecting'; cameraOff: boolean; /** Showing their screen instead of their camera. */ screen: boolean; muted: boolean; out: { ready: boolean; queue: Candidate[]; timer?: ReturnType<typeof setTimeout> };
   /** 2 or more: this person's app can repair a dropped connection in place (it says so on the data channel). Older apps stay 0 and behave as before. */ caps: number;
   /** Was connected at least once. */ live: boolean; /** Their picture and sound are arriving badly right now. */ weak: boolean;
   fix: { timer?: ReturnType<typeof setTimeout>; tries: number }; net: { lost: number; got: number; freezes: number; score: number; calm: number; target: number } };
-type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; state: Peer['state']; weak: boolean };
+type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; state: Peer['state']; weak: boolean; screen?: boolean };
 /** Messages for features riding on the call (Netflix / Prime watch party): sent to everyone on the call over the
  * peer-to-peer data channel. Phones ignore what they don't know. */
 export type PartyMessage = { w: 'party' } & Record<string, unknown>;
@@ -53,12 +53,25 @@ const SEND = [
   { bitrate: 600_000, scale: 2, fps: 24 },     // 3 others: 360p each
   { bitrate: 380_000, scale: 2.5, fps: 20 },   // 4 or more others
 ];
-async function tune(sender: RTCRtpSender | null | undefined, others: number) {
+/** A shared screen: always full size. Text and slides ('detail') keep their sharpness and drop frames when tight;
+ *  a video with its sound ('motion') keeps moving smoothly. */
+const SCREEN = [2_500_000, 1_500_000, 1_000_000, 800_000];
+type ShareKind = 'detail' | 'motion';
+/** Your microphone and a shared screen's sound, mixed into the one voice track everyone already receives. */
+type Mix = { ctx: AudioContext; out: MediaStreamTrack; mic: MediaStreamAudioSourceNode | null; dest: MediaStreamAudioDestinationNode };
+async function tune(sender: RTCRtpSender | null | undefined, others: number, screen: ShareKind | null = null) {
   if (!sender?.track || sender.track.kind !== 'video') return;
   try {
-    sender.track.contentHint = 'motion';
     const params = sender.getParameters() as RTCRtpSendParameters & { degradationPreference?: string };
     if (!params.encodings?.length) return;
+    const k = Math.min(Math.max(others, 1), SCREEN.length) - 1;
+    if (screen) {
+      sender.track.contentHint = screen;
+      params.encodings.forEach(e => { e.maxBitrate = SCREEN[k] * (screen === 'motion' ? 1.2 : 1); e.maxFramerate = screen === 'motion' ? (others > 2 ? 24 : 30) : 15; e.scaleResolutionDownBy = 1; e.priority = 'high'; e.networkPriority = 'high'; });
+      params.degradationPreference = screen === 'detail' ? 'maintain-resolution' : 'balanced';
+      await sender.setParameters(params); return;
+    }
+    sender.track.contentHint = 'motion';
     const q = SEND[Math.min(Math.max(others, 1), SEND.length) - 1];
     params.encodings.forEach(e => { e.maxBitrate = q.bitrate; e.maxFramerate = q.fps; e.scaleResolutionDownBy = q.scale; e.priority = 'high'; e.networkPriority = 'high'; });
     params.degradationPreference = 'balanced';
@@ -105,14 +118,18 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const [micLabel, setMicLabel] = useState('');
   useEffect(() => { audioRef.current = audioChoice; }, [audioChoice]);
   const ice = useRef<RTCIceServer[] | null>(null);
-  const mediaState = useRef({ cameraOff: true, muted: false });
+  const mediaState = useRef({ cameraOff: true, muted: false, screen: false });
+  /** Your shared screen while you present: its picture, and (with sound) a mix of your microphone and the screen's sound. */
+  const screen = useRef<{ video: MediaStreamTrack; display: MediaStream; kind: ShareKind; mix?: Mix } | null>(null);
+  const [sharing, setSharing] = useState<null | { sound: boolean; preview: MediaStream }>(null);
+  const [shareMenu, setShareMenu] = useState(false);
   const tone = useRef<{ stop: () => void } | null>(null);
   /** False when only the public address servers answered: calls through strict networks then can't connect. */
   const hasRelay = () => (ice.current || []).some(x => ([] as string[]).concat(x.urls).some(u => /^turns?:/i.test(u)));
 
   const transition = (next: Phase) => { phaseRef.current = next; setPhase(next); };
   const select = (next: ActiveCall | null) => { callRef.current = next; setCall(next); };
-  const refresh = () => setPeerList([...peers.current.values()].map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted, state: p.state, weak: p.weak })));
+  const refresh = () => setPeerList([...peers.current.values()].map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted, state: p.state, weak: p.weak, screen: p.screen })));
   const sendTo = (to: string, type: CallSignal['type'], payload: Record<string, unknown> = {}, target = callRef.current) => target ? latest.current.signalCall(target.code, to, type, { ...payload, callId: target.id }) : Promise.resolve();
   function flush(peer: Peer) {
     clearTimeout(peer.out.timer); peer.out.timer = undefined;
@@ -131,7 +148,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     pending.current.clear(); live.current.clear(); early.current.clear(); ice.current = null;
     stream.current?.getTracks().forEach(t => t.stop()); stream.current = null;
     setLocal(null); setPeerList([]); setCameraOff(true); setMuted(false); setElapsed(0); setError(message);
-    mediaState.current = { cameraOff: true, muted: false };
+    stopShare(false);
+    mediaState.current = { cameraOff: true, muted: false, screen: false };
     if (previous && !wasRinging) void latest.current.callLive(previous.code, { callId: previous.id, leave: true });
     if (!notify || !previous) return;
     if (wasRinging) { void sendTo(previous.starter.id, 'reject', { reason: 'declined' }, previous).catch(() => {}); return; }
@@ -164,13 +182,14 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   }
   function shareMedia(only?: RTCDataChannel) {
     // `v: 2`: this app can repair a dropped connection in place (see repair()).
-    const packet = JSON.stringify({ ...mediaState.current, v: 2 });
+    const m = mediaState.current;
+    const packet = JSON.stringify({ ...m, cameraOff: m.cameraOff && !m.screen, v: 2 });
     for (const ch of only ? [only] : [...peers.current.values()].map(p => p.channel)) if (ch?.readyState === 'open') ch.send(packet);
   }
   function attach(peer: Peer, ch: RTCDataChannel) {
     peer.channel = ch;
     ch.onopen = () => shareMedia(ch);
-    ch.onmessage = e => { if (peer.channel !== ch) return; try { const s = JSON.parse(String(e.data)); if (s && s.w === 'party') { partyListeners.forEach(fn => { try { fn(s as PartyMessage, { id: peer.id, name: peer.name }); } catch { /* listener error */ } }); return; } if (typeof s.v === 'number') peer.caps = s.v; if (typeof s.cameraOff === 'boolean') peer.cameraOff = s.cameraOff; if (typeof s.muted === 'boolean') peer.muted = s.muted; refresh(); } catch { /* ignore */ } };
+    ch.onmessage = e => { if (peer.channel !== ch) return; try { const s = JSON.parse(String(e.data)); if (s && s.w === 'party') { partyListeners.forEach(fn => { try { fn(s as PartyMessage, { id: peer.id, name: peer.name }); } catch { /* listener error */ } }); return; } if (typeof s.v === 'number') peer.caps = s.v; if (typeof s.cameraOff === 'boolean') peer.cameraOff = s.cameraOff; peer.screen = s.screen === true; if (typeof s.muted === 'boolean') peer.muted = s.muted; refresh(); } catch { /* ignore */ } };
   }
   async function prepare(target: ActiveCall) {
     // Ask for the relay servers while the camera and microphone start, not after them.
@@ -184,7 +203,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       if (callRef.current !== target) { media.getTracks().forEach(t => t.stop()); return false; }
       stream.current = media; setLocal(media);
       media.getAudioTracks().forEach(t => t.addEventListener('ended', () => setMicCheck(n => n + 1)));
-      mediaState.current = { muted: false, cameraOff: !target.video }; setCameraOff(!target.video);
+      mediaState.current = { muted: false, cameraOff: !target.video, screen: false }; setCameraOff(!target.video);
     }
     if (servers) { const list = await servers; if (!ice.current) ice.current = list; }
     return callRef.current === target;
@@ -197,7 +216,9 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     catch { try { fresh = await navigator.mediaDevices.getUserMedia({ audio: micConstraints('', false) }); } catch { setError('Could not use that microphone.'); return; } }
     const track = fresh.getAudioTracks()[0]; if (!track || stream.current !== media) { fresh.getTracks().forEach(x => x.stop()); return; }
     track.enabled = !mediaState.current.muted;
-    await Promise.all([...peers.current.values()].map(p => {
+    const mix = screen.current?.mix;
+    if (mix) { try { mix.mic?.disconnect(); mix.mic = mix.ctx.createMediaStreamSource(new MediaStream([track])); mix.mic.connect(mix.dest); } catch { /* keeps the screen's sound */ } }
+    else await Promise.all([...peers.current.values()].map(p => {
       const sender = p.pc.getTransceivers().find(x => x.sender.track?.kind === 'audio' || x.receiver.track?.kind === 'audio')?.sender;
       return sender?.replaceTrack(track).catch(() => {});
     }));
@@ -210,11 +231,12 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   function createPeer(person: CallPeer, target: ActiveCall, { offerer, ready }: { offerer: boolean; ready: boolean }) {
     removePeer(person.id);
     const pc = new RTCPeerConnection({ iceServers: ice.current || [], iceCandidatePoolSize: 2 });
-    const peer: Peer = { id: person.id, name: person.name, pc, stream: null, channel: null, sender: null, state: 'connecting', cameraOff: !target.video, muted: false, out: { ready, queue: [] }, caps: 0, live: false, weak: false, fix: { tries: 0 }, net: { lost: 0, got: 0, freezes: 0, score: 0, calm: 0, target: VIDEO_BUFFER } };
+    const peer: Peer = { id: person.id, name: person.name, pc, stream: null, channel: null, sender: null, state: 'connecting', cameraOff: !target.video, screen: false, muted: false, out: { ready, queue: [] }, caps: 0, live: false, weak: false, fix: { tries: 0 }, net: { lost: 0, got: 0, freezes: 0, score: 0, calm: 0, target: VIDEO_BUFFER } };
     peers.current.set(person.id, peer);
     const media = stream.current!;
-    media.getAudioTracks().forEach(t => pc.addTrack(t, media));
-    const cam = media.getVideoTracks()[0];
+    const shown = screen.current;
+    (shown?.mix ? [shown.mix.out] : media.getAudioTracks()).forEach(t => pc.addTrack(t, media));
+    const cam = shown?.video || media.getVideoTracks()[0];
     peer.sender = cam ? pc.addTrack(cam, media) : pc.addTransceiver('video', { direction: 'sendrecv' }).sender;
     if (offerer) attach(peer, pc.createDataChannel('media-state', { ordered: true }));
     pc.ondatachannel = e => attach(peer, e.channel);
@@ -243,7 +265,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     refresh();
     return peer;
   }
-  function tuneAll() { const n = peers.current.size; for (const p of peers.current.values()) void tune(p.sender, n); }
+  function tuneAll() { const n = peers.current.size; const kind = screen.current?.kind ?? null; for (const p of peers.current.values()) void tune(p.sender, n, kind); }
   /** Repair a dropped connection without hanging up (an ICE restart): the lower ID sends a fresh offer over the same
    *  connection, the other side asks for one. Only between apps that both announced it (`v: 2`); with anyone else
    *  nothing changes. Tried again every 6 s until it is back or the "reconnecting" time limit ends the call. */
@@ -454,7 +476,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         // Off means off: tell everyone first (they switch to your photo), then stop the camera so its light goes out.
         mediaState.current.cameraOff = true; setCameraOff(true); shareMedia();
         if (cam) {
-          await Promise.all([...peers.current.values()].map(p => p.sender?.replaceTrack(null).catch(() => {})));
+          if (!screen.current) await Promise.all([...peers.current.values()].map(p => p.sender?.replaceTrack(null).catch(() => {})));
           media.removeTrack(cam); cam.stop();
           if (stream.current === media) setLocal(new MediaStream(media.getTracks()));
         }
@@ -464,13 +486,76 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         const cap = await navigator.mediaDevices.getUserMedia({ video: VIDEO }).catch(() => { throw new Error('Allow the camera for this site, then try again.'); });
         if (callRef.current !== target || stream.current !== media) { cap.getTracks().forEach(t => t.stop()); return; }
         cam = cap.getVideoTracks()[0];
-        await Promise.all([...peers.current.values()].map(p => p.sender?.replaceTrack(cam!)));
+        if (!screen.current) await Promise.all([...peers.current.values()].map(p => p.sender?.replaceTrack(cam!)));
         media.addTrack(cam); setLocal(new MediaStream(media.getTracks())); tuneAll();
       }
       cam.enabled = true;
       mediaState.current.cameraOff = false; setCameraOff(false); shareMedia();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
+  /** Present your screen (a tab, a window or the whole screen). It takes the camera's place for everyone, so every
+   *  app sees it. `sound`: the screen's sound is mixed into your microphone (Chrome and Edge: any tab; the whole
+   *  screen on Windows and ChromeOS). Your microphone mute still works and doesn't silence the screen. */
+  async function startShare(sound: boolean) {
+    setShareMenu(false);
+    const target = callRef.current; const media = stream.current;
+    if (!target || !media || screen.current || !navigator.mediaDevices?.getDisplayMedia) return;
+    let display: MediaStream;
+    try {
+      display = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: sound ? 30 : 15, max: 30 }, width: { max: 1920 }, height: { max: 1080 } },
+        audio: sound ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false } as MediaTrackConstraints : false,
+        ...(sound ? { systemAudio: 'include' } : {}), selfBrowserSurface: 'exclude', surfaceSwitching: 'include', monitorTypeSurfaces: 'include',
+      } as DisplayMediaStreamOptions);
+    } catch (e) {
+      // Closing the browser's picker is not an error.
+      if ((e as Error).name !== 'NotAllowedError' && (e as Error).name !== 'AbortError') toast('Your screen couldn’t be shared. Check that this browser may record the screen (system settings), then try again.', { tone: 'error' });
+      return;
+    }
+    const video = display.getVideoTracks()[0];
+    if (!video || callRef.current !== target || stream.current !== media) { display.getTracks().forEach(t => t.stop()); return; }
+    const kind: ShareKind = sound ? 'motion' : 'detail';
+    try { video.contentHint = kind; } catch { /* older browsers */ }
+    let mix: Mix | undefined;
+    const heard = display.getAudioTracks()[0];
+    if (heard) {
+      try {
+        const ctx = new AudioContext(); void ctx.resume().catch(() => {});
+        const dest = ctx.createMediaStreamDestination();
+        const micTrack = media.getAudioTracks()[0];
+        const mic = micTrack ? ctx.createMediaStreamSource(new MediaStream([micTrack])) : null; mic?.connect(dest);
+        ctx.createMediaStreamSource(new MediaStream([heard])).connect(dest);
+        mix = { ctx, dest, mic, out: dest.stream.getAudioTracks()[0] };
+      } catch { mix = undefined; }
+    }
+    screen.current = { video, display, kind, mix };
+    await Promise.all([...peers.current.values()].map(p => Promise.all([
+      p.sender?.replaceTrack(video).catch(() => {}),
+      mix ? p.pc.getSenders().find(x => x.track?.kind === 'audio')?.replaceTrack(mix.out).catch(() => {}) : null,
+    ])));
+    tuneAll();
+    mediaState.current.screen = true; shareMedia();
+    // The browser's own "Stop sharing" button (or closing the shared tab) ends it here too.
+    video.addEventListener('ended', () => { if (screen.current?.video === video) stopShare(); });
+    setSharing({ sound: !!mix, preview: new MediaStream([video]) });
+    if (sound && !mix) toast('Your screen is shared, but without sound. To share sound, pick a Chrome tab and keep “Also share tab audio” on.', { tone: 'info' });
+  }
+  function stopShare(tell = true) {
+    const shown = screen.current; if (!shown) return;
+    screen.current = null; setSharing(null);
+    const media = stream.current;
+    const cam = media && !mediaState.current.cameraOff ? media.getVideoTracks()[0] || null : null;
+    const mic = media?.getAudioTracks()[0] || null;
+    for (const p of peers.current.values()) {
+      void p.sender?.replaceTrack(cam).catch(() => {});
+      if (shown.mix && mic) void p.pc.getSenders().find(x => x.track?.kind === 'audio')?.replaceTrack(mic).catch(() => {});
+    }
+    shown.display.getTracks().forEach(t => t.stop());
+    void shown.mix?.ctx.close().catch(() => {});
+    mediaState.current.screen = false;
+    if (tell) { tuneAll(); shareMedia(); }
+  }
+  const canShare = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia && !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   // Back online after a drop (Wi-Fi returned, laptop woke up): repair every connection that is down, now.
   useEffect(() => {
     const back = () => { for (const p of peers.current.values()) if (p.live && p.state !== 'connected') { clearTimeout(p.fix.timer); p.fix.timer = undefined; void repair(p); } };
@@ -598,6 +683,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const pickLayout = (v: Layout) => { setLayout(v); try { localStorage.setItem('ourspace.callLayout', v); } catch { /* fine */ } };
   useEffect(() => { if (!call) setPinned(null); }, [call]);
   const speaker = voices.speaker;
+  /** Someone showing their screen (the first, if several). */
+  const presenter = others.find(p => p.screen)?.id ?? null;
   useEffect(() => { if (pinned && pinned !== SELF && !others.some(p => p.id === pinned)) setPinned(null); }, [pinned, others]);
   const [fsHost, setFsHost] = useState<Element | null>(null);
   useEffect(() => {
@@ -636,6 +723,13 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const controls = <>
     {connected && <IconButton size="lg" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
     {connected && call?.video && <IconButton size="lg" icon={cameraOff ? 'videoOff' : 'video'} variant={cameraOff ? 'on' : undefined} label={cameraOff ? 'Turn camera on' : 'Turn camera off'} disabled={busy} onClick={() => void toggleCamera()} />}
+    {connected && canShare && <div className="share-wrap">
+      <IconButton size="lg" icon="screen" variant={sharing ? 'on' : undefined} label={sharing ? 'Stop presenting' : 'Share your screen'} aria-expanded={sharing ? undefined : shareMenu} onClick={() => { if (sharing) stopShare(); else setShareMenu(o => !o); }} />
+      {shareMenu && !sharing && <div className="share-menu glass" role="menu" aria-label="Share your screen">
+        <button role="menuitem" onClick={() => void startShare(false)}><Icon name="screen" size={18} /><span><b>Share screen</b><small>A tab, a window or your whole screen. Sharpest for text and slides.</small></span></button>
+        <button role="menuitem" onClick={() => void startShare(true)}><Icon name="volume" size={18} /><span><b>Share screen with sound</b><small>For videos and music. Pick a Chrome tab and keep “Also share tab audio” on.</small></span></button>
+      </div>}
+    </div>}
     {connected && <IconButton size="lg" icon="sliders" label="Audio: choose microphone and speaker" onClick={() => setAudioSheet(true)} />}
     {connected && call && <IconButton size="lg" icon="game" label="Play a game, the call continues" onClick={() => { setExpanded(false); nav(`/room/${call.code}?tab=play`); }} />}
     <IconButton size="lg" icon="hangup" variant="end" label={connected ? 'End call' : 'Cancel call'} onClick={() => finish()} />
@@ -653,18 +747,19 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         <div className="grow"><p className="h3">{group ? call.title : others[0]?.name || call.title}</p><p className="small muted">{!group && others[0]?.muted && connected ? 'Muted · ' : ''}{status}</p></div>
         {error && <span className="small rose">{error}</span>}
         {!error && selfWeak && connected && <span className="small muted net-hint"><i />Your connection is weak</span>}
+        {sharing && <span className="presenting"><i />You’re presenting{sharing.sound ? ' with sound' : ''}<button onClick={() => stopShare()}>Stop</button></span>}
         {connected && others.length >= 2 && <div className="layout-seg" role="group" aria-label="Layout">
           {(['auto', 'grid', 'speaker'] as Layout[]).map(v => <button key={v} className={layout === v ? 'on' : ''} aria-pressed={layout === v} onClick={() => pickLayout(v)}>{v === 'auto' ? 'Auto' : v === 'grid' ? 'Grid' : 'Speaker'}</button>)}
         </div>}
       </div>
       {(() => {
-        const swap = selfBig && !!local && !cameraOff && connected && others.length === 1;
-        const me = <><VideoEl stream={local!} muted /><span className="name">You{muted && <Icon name="micOff" size={13} />}</span></>;
+        const swap = selfBig && (!!sharing || (!!local && !cameraOff)) && connected && others.length === 1;
+        const me = sharing ? <><VideoEl stream={sharing.preview} muted /><span className="name">Your screen{muted && <Icon name="micOff" size={13} />}</span></> : <><VideoEl stream={local!} muted /><span className="name">You{muted && <Icon name="micOff" size={13} />}</span></>;
         return <>
-          {swap ? <div className="call-stage" style={{ gridTemplateColumns: 'minmax(0, min(1100px, 100%))' }}><div className="tile self-big">{me}</div></div>
-            : <Stage others={others} connected={connected} video={call.video} title={call.title} status={status} ringing={call.members} layout={layout} pinned={pinned === SELF ? null : pinned} onPin={setPinned} speaker={speaker} />}
+          {swap ? <div className={`call-stage${sharing ? ' my-screen' : ''}`} style={{ gridTemplateColumns: 'minmax(0, min(1100px, 100%))' }}><div className="tile self-big">{me}</div></div>
+            : <Stage others={others} connected={connected} video={call.video} title={call.title} status={status} ringing={call.members} layout={layout} pinned={pinned === SELF ? null : pinned ?? presenter} onPin={setPinned} speaker={speaker} />}
           {swap ? <button className="tile self-tile swap" onClick={() => setSelfBig(false)} aria-label={`Make ${firstName(others[0].name)} big`} title="Make this the big picture"><PeerTile p={others[0]} video={call.video} /></button>
-            : local && !cameraOff && <button className="tile self-tile swap" onClick={() => { if (connected && others.length === 1) setSelfBig(true); }} aria-label="Make your picture big" title={others.length === 1 ? 'Make this the big picture' : undefined}>{me}</button>}
+            : (sharing || (local && !cameraOff)) && <button className={`tile self-tile swap${sharing ? ' screen' : ''}`} onClick={() => { if (connected && others.length === 1) setSelfBig(true); }} aria-label="Make your picture big" title={others.length === 1 ? 'Make this the big picture' : undefined}>{me}</button>}
         </>;
       })()}
       <div className="call-controls"><div className="glass">{controls}</div></div>
@@ -705,7 +800,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
       </div>
     </div>}
     {layerShown ? layerEl : ghost}
-    {call && phase !== 'incoming' && !expanded && !inPip && !inGame && (call.video || docked !== call.code) && <MiniCall others={others} spotId={pinned && pinned !== SELF ? pinned : speaker} onPin={setPinned} self={local && !cameraOff ? local : null} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
+    {call && phase !== 'incoming' && !expanded && !inPip && !inGame && (call.video || docked !== call.code) && <MiniCall others={others} spotId={pinned && pinned !== SELF ? pinned : presenter ?? speaker} onPin={setPinned} self={local && !cameraOff ? local : null} status={status} title={group ? call.title : others[0]?.name || call.title} onOpen={() => setExpanded(true)} controls={<>
       {connected && <IconButton size="sm" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
       {!pip.supported && canFloat && <IconButton size="sm" icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
       <IconButton size="sm" icon="hangup" variant="end" label="End call" onClick={() => finish()} />
@@ -716,11 +811,11 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         <div className="row gap-16"><IconButton icon="hangup" variant="end" label="Decline" onClick={() => finish(true)} /><IconButton icon={call.video ? 'video' : 'phone'} variant="mint" label="Answer" onClick={() => void accept()} /></div>
       </div></div>
       : <CallFloat others={others.length ? others : call.members.map(m => ({ id: m.id, name: m.name, stream: null, cameraOff: true, muted: false, state: 'connecting' as const, weak: false }))} video={call.video} local={local} cameraOff={cameraOff} muted={muted} status={status} big={floatBig} onBig={setFloatBig}
-          pinned={pinned} onPin={setPinned} speaker={speaker} connected={connected} busy={busy} onMute={toggleMute} onCamera={() => void toggleCamera()} onEnd={() => finish()} />, pip.slots!.call)}
+          pinned={pinned} onPin={setPinned} speaker={presenter ?? speaker} connected={connected} busy={busy} onMute={toggleMute} onCamera={() => void toggleCamera()} onEnd={() => finish()} />, pip.slots!.call)}
     {/* Full-screen video in this tab (the room's YouTube player): the call floats inside it. */}
     {fsHost && call && connected && !inPip && createPortal(<div className={`fs-call ${floatBig ? 'big' : ''}`}>
       <CallFloat others={others} video={call.video} local={local} cameraOff={cameraOff} muted={muted} status={status} big={floatBig} onBig={setFloatBig}
-        pinned={pinned} onPin={setPinned} speaker={speaker} connected={connected} busy={busy} onMute={toggleMute} onCamera={() => void toggleCamera()} onEnd={() => finish()} />
+        pinned={pinned} onPin={setPinned} speaker={presenter ?? speaker} connected={connected} busy={busy} onMute={toggleMute} onCamera={() => void toggleCamera()} onEnd={() => finish()} />
     </div>, fsHost)}
   </CallContext.Provider></VoiceContext.Provider>;
 }
@@ -789,11 +884,11 @@ function PeerTile({ p, video, pinned, onPin }: { p: PeerView; video: boolean; pi
   const [ratio, setRatio] = useState(() => { const t = showVideo ? p.stream!.getVideoTracks()[0] : null; const q = t && !t.muted ? t.getSettings() : null; return q?.width && q.height ? q.width / q.height : 0; });
   useEffect(() => { if (!showVideo) setRatio(0); }, [showVideo]);
   const live = showVideo && ratio > 0;
-  const tall = live && ratio < 0.9;
-  return <div className={`tile ${speaking ? 'speaking' : ''}${tall ? ' tall' : ''}`} style={tall ? { '--ar': ratio } as React.CSSProperties : undefined}>
+  const tall = live && ratio < 0.9 && !p.screen;
+  return <div className={`tile ${speaking ? 'speaking' : ''}${tall ? ' tall' : ''}${p.screen && live ? ' screen' : ''}`} style={tall ? { '--ar': ratio } as React.CSSProperties : undefined}>
     {showVideo && <VideoEl stream={p.stream!} muted remote onPicture={setRatio} veiled={!live} />}
     <div className={`tile-wait${live ? ' gone' : ''}`}><Avatar name={p.name} size={92} /><span className="small muted">{p.state === 'connected' ? (showVideo ? 'Starting video…' : video ? 'Camera off' : 'On the call') : p.state === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}</span></div>
-    <span className="name">{p.muted && <Icon name="micOff" size={13} />}{firstName(p.name)}</span>
+    <span className="name">{p.muted && <Icon name="micOff" size={13} />}{firstName(p.name)}{p.screen ? '’s screen' : ''}</span>
     {p.weak && p.state === 'connected' && <span className="tile-net"><i />Weak connection</span>}
     {onPin && <button className={`float-pin tile-pin ${pinned ? 'on' : ''}`} onClick={onPin} aria-label={pinned ? `Unpin ${firstName(p.name)}` : `Pin ${firstName(p.name)} as the big picture`} title={pinned ? 'Unpin' : 'Pin as the big picture'}><Icon name="star" size={14} fill={pinned} /></button>}
   </div>;
