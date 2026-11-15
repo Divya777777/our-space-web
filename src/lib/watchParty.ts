@@ -78,11 +78,13 @@ export const isDesktopSafari = typeof navigator !== 'undefined' && /Macintosh/.t
 export const showStreamTiles = browserSupported || isDesktopSafari;
 const env = import.meta.env as Record<string, string | undefined>;
 /** The store page for this browser (empty until that listing is live). */
-export const EXTENSION_URL = (isFirefox ? env.VITE_FIREFOX_EXTENSION_URL : env.VITE_EXTENSION_URL) || '';
+/** The published Chrome Web Store listing (Chrome, Edge, Brave, Opera install from here). */
+const CHROME_STORE_ID = 'piogabgjbabmafpglkdfhnjlmmofhlbl';
+export const EXTENSION_URL = (isFirefox ? env.VITE_FIREFOX_EXTENSION_URL : env.VITE_EXTENSION_URL || `https://chromewebstore.google.com/detail/${CHROME_STORE_ID}`) || '';
 /** The test download for this browser (until the store listing is live). */
 export const TEST_ZIP = isFirefox ? 'ourspace-extension-firefox.zip' : 'ourspace-extension.zip';
 /** The store version's ID (once published) and the test version's fixed ID (from the key in extension/manifest.json). */
-const EXTENSION_IDS = [(import.meta.env as Record<string, string | undefined>).VITE_EXTENSION_ID, 'bodhgadmdeebjmklhkgjlmcjlnnibino'].filter(Boolean) as string[];
+const EXTENSION_IDS = [(import.meta.env as Record<string, string | undefined>).VITE_EXTENSION_ID, CHROME_STORE_ID, 'bodhgadmdeebjmklhkgjlmcjlnnibino'].filter(Boolean) as string[];
 /** Test version (before the store): start the download from the click. */
 export function downloadTestVersion() {
   const a = document.createElement('a'); a.href = `${import.meta.env.BASE_URL}${TEST_ZIP}`; a.download = TEST_ZIP;
