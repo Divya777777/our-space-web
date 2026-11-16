@@ -122,6 +122,8 @@ export function useWatchParty(call: Call, meName: string) {
   const [note, setNote] = useState('');
   const [sessionId, setSessionId] = useState('');
   const lastReady = useRef({ key: '', at: 0 });
+  /** Left the title (back to browsing): told to the others after a moment, in case it's just the next page loading. */
+  const browsing = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Last play / pause / seek by anyone: heartbeats wait a moment after it (the players' reports lag ~1 s). */
   const lastAction = useRef(0);
   const st = useRef({ service, status, host, local, peers, sessionId });
@@ -172,12 +174,23 @@ export function useWatchParty(call: Call, meName: string) {
         const others = Object.values(s.peers);
         overlay(others.length ? `Waiting for ${firstNames(others)} to open it…` : 'Waiting for the others to join…', 'wait');
       }
+      if (p.id && browsing.current) { clearTimeout(browsing.current); browsing.current = null; }
+      // Back on the browse page while on a title: everyone pauses and waits for the next pick (nobody is dragged there).
+      if (!p.id && s.sessionId && !browsing.current && s.status !== 'idle') {
+        browsing.current = setTimeout(() => {
+          browsing.current = null;
+          const n = st.current; if (!n.service || !n.sessionId || n.local?.id) return;
+          setSessionId(''); setStatus('choosing'); lastReady.current = { key: '', at: 0 };
+          send(msg('browsing'));
+          overlay('Pick something — everyone follows', 'wait');
+        }, 1500);
+      }
       if (p.id && p.id === s.sessionId) {
         // Tell the others when readiness changes (and every few seconds, in case a message was missed).
         const key = `${p.id}:${p.ready}`;
         if (key !== lastReady.current.key || Date.now() - lastReady.current.at > 5000) { lastReady.current = { key, at: Date.now() }; send(msg('ready', { id: p.id, ready: p.ready, t: p.t, paused: p.paused })); }
       }
-    } else if (m.type === 'user' && s.status === 'synced') {
+    } else if (m.type === 'user' && s.status === 'synced' && (!m.id || m.id === s.sessionId)) {
       const playing = m.action === 'play' ? true : m.action === 'pause' ? false : !(s.local?.paused ?? true);
       lastAction.current = Date.now();
       if (s.local) setLocal({ ...s.local, paused: !playing, t: Number(m.t) || s.local.t });
@@ -205,10 +218,14 @@ export function useWatchParty(call: Call, meName: string) {
         peer({ id: String(m.id), ready: false });
         if (!s.service) { setInvite({ service: m.service as Service, from: from.id, fromName: from.name }); break; }
         if (m.id !== s.sessionId) {
-          setSessionId(String(m.id)); setStatus('waiting');
-          extension.send({ type: 'open', service: m.service, url: m.url, focus: true });
-          overlay(`${from.name.split(' ')[0]} picked “${String(m.title || 'something')}”. Opening it…`, 'wait');
+          setSessionId(String(m.id)); setStatus('waiting'); lastReady.current = { key: '', at: 0 };
+          // Already on it (the next episode started here too): nothing to open, no reload.
+          if (s.local?.id !== m.id) { extension.send({ type: 'open', service: m.service, url: m.url, focus: true }); overlay(`${from.name.split(' ')[0]} picked “${String(m.title || 'something')}”. Opening it…`, 'wait'); }
         }
+        break;
+      case 'browsing':
+        peer({ id: '', ready: false });
+        if (s.service) { setSessionId(''); setStatus('waiting'); cmd('pause'); overlay(`${from.name.split(' ')[0]} is picking something else…`, 'wait'); }
         break;
       case 'ready': peer({ id: String(m.id), ready: !!m.ready, t: Number(m.t) || 0, paused: !!m.paused, at: Date.now() }); break;
       case 'go': {
