@@ -197,35 +197,6 @@ textarea.input { height: auto; padding: 12px 16px; resize: vertical; min-height:
 .scrim { position: fixed; inset: 0; z-index: 100; background: rgba(3, 5, 12, .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: grid; place-items: center; padding: 20px; animation: fade .2s var(--ease); }
 .sheet { width: min(520px, 100%); max-height: min(86vh, 860px); display: flex; flex-direction: column; border-radius: 28px; background: var(--glass-strong); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border: 1px solid var(--edge); box-shadow: var(--depth), inset 0 1px 0 var(--edge-lit); animation: rise .28s var(--ease); }
 .sheet.wide { width: min(760px, 100%); }
-/* Games with a canvas: nearly the whole screen. */
-.sheet.xl { width: min(1240px, 100%); max-height: 96vh; }
-.sheet.xl .sheet-body { gap: 14px; }
-/* Scribble: the canvas as big as the window allows (it keeps its shape, so lines look the same for everyone),
-   with faces, players, guesses and the guess box beside it. One column on small screens. */
-/* Scribble: the word and timer, the drawing, then the guesses right under it. */
-.scribble { display: flex; flex-direction: column; gap: 12px; }
-.scribble-side { width: min(100%, calc((96vh - 330px) * 342 / 300)); margin: 0 auto; }
-.scribble-main > .row.between { width: min(100%, calc((96vh - 330px) * 342 / 300)); margin: 0 auto; }
-.scribble-main, .scribble-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.sheet.xl .paper { width: min(100%, calc((96vh - 330px) * 342 / 300)); margin: 0 auto; }
-/* Games on a call: the game on the left, everyone's video in one column down the right, the window's full height.
-   The faces split that height equally (smaller as more people join; two across from 7 people). */
-.sheet.xl:has(.game-rail) { height: 96vh; }
-.sheet.xl:has(.game-rail) .sheet-body { flex: 1; min-height: 0; overflow: hidden; padding-bottom: 16px; }
-.game-layout { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(180px, 17vw, 250px); gap: 18px; }
-.game-main { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-right: 4px; }
-.game-rail { min-height: 0; display: flex; }
-.game-rail .game-faces { flex: 1; min-height: 0; }
-.game-rail .game-faces-grid { flex: 1; min-height: 0; grid-template-columns: 1fr !important; grid-auto-rows: minmax(0, 1fr); }
-.game-rail .game-faces.n6 .game-faces-grid:has(> :nth-child(7)) { grid-template-columns: 1fr 1fr !important; }
-.game-rail .game-face { aspect-ratio: auto; height: 100%; min-height: 0; }
-@media (max-width: 900px) {
-  .sheet.xl .paper, .scribble-side, .scribble-main > .row.between { width: 100%; }
-  /* Narrow windows: the faces become a strip across the top instead. */
-  .sheet.xl:has(.game-rail) { height: auto; } .sheet.xl:has(.game-rail) .sheet-body { overflow-y: auto; }
-  .game-layout { display: flex; flex-direction: column-reverse; height: auto; } .game-main { overflow: visible; }
-  .game-rail .game-faces-grid { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)) !important; grid-auto-rows: 96px; }
-}
 .sheet-head { display: flex; align-items: center; gap: 12px; padding: 20px 20px 8px 24px; }
 .sheet-body { padding: 8px 24px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
 .sheet-foot { padding: 12px 24px 22px; display: flex; flex-direction: column; gap: 8px; }
@@ -279,61 +250,18 @@ textarea.input { height: auto; padding: 12px 16px; resize: vertical; min-height:
 .composer textarea { flex: 1; min-height: 44px; max-height: 140px; height: 44px; resize: none; border-radius: 22px; padding: 11px 16px; }
 
 /* Calls */
-/* Solid, not a blur over the page: the room (its video, its animated backdrop) keeps moving underneath, and blurring that every frame made calls heavy. */
-.call-layer { position: fixed; inset: 0; z-index: 90; display: grid; grid-template-rows: auto 1fr auto; background: radial-gradient(120% 90% at 50% 0%, #141B36 0%, #080B16 58%, #04060D 100%); animation: callIn .28s var(--ease); }
+.call-layer { position: fixed; inset: 0; z-index: 90; display: grid; grid-template-rows: auto 1fr auto; background: rgba(3, 5, 12, .82); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); animation: fade .25s var(--ease); }
 .call-top { display: flex; align-items: center; gap: 12px; padding: 18px 22px; }
 .call-stage { position: relative; min-height: 0; display: grid; gap: 14px; padding: 6px 22px; align-content: center; justify-content: center; }
 .tile { position: relative; border-radius: 26px; overflow: hidden; background: #0A0E1A; box-shadow: var(--depth), 0 0 0 1px var(--edge); display: grid; place-items: center; aspect-ratio: 16 / 10; transition: box-shadow .2s; }
 .tile.speaking { box-shadow: var(--depth), 0 0 0 2px var(--mint), 0 0 40px -6px rgba(182,221,207,.6); }
-.tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #0A0E1A; }
+.tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
 .self-tile video, .call-pill .tile video { object-fit: cover; }
-.tile .name { position: absolute; left: 12px; bottom: 12px; z-index: 2; padding: 4px 10px; border-radius: 10px; background: rgba(4,6,13,.72); font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.tile .name { position: absolute; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 10px; background: rgba(4,6,13,.6); backdrop-filter: blur(10px); font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
 .self-tile { position: absolute; right: 26px; bottom: 26px; width: 220px; aspect-ratio: 16 / 10; z-index: 3; }
 .self-tile video { transform: scaleX(-1); }
 .call-controls { display: flex; justify-content: center; padding: 18px 0 30px; }
-.call-controls .glass { display: flex; gap: 10px; padding: 10px; border-radius: 999px; backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255, 255, 255, .07); }
-/* Calls, light to draw and soft to look at: the room's backdrop rests while the full call view covers it, pictures
-   fade in on their first frame (their photo stays until then), tiles ease in, and the view fades out when it closes. */
-@keyframes callIn { from { opacity: 0; transform: scale(1.012); } }
-@keyframes callOut { to { opacity: 0; transform: scale(1.012); } }
-@keyframes tileIn { from { transform: scale(.95); } }
-.call-layer.closing { animation: callOut .22s var(--ease) forwards; pointer-events: none; }
-html[data-call-open] .ambient { visibility: hidden; }
-html[data-call-open] .ambient * { animation-play-state: paused !important; }
-/* Their photo covers the tile until the picture's first frame is there, then fades away.
-   The videos in the call view count as very slightly see-through (.999, invisible to the eye). A video the browser
-   treats as fully solid lets it skip drawing what is behind; when that video's frame isn't ready (as it starts, or
-   changes size) the page underneath showed through the tile for a few frames. Seen in tests once the call view
-   stopped being a blur; this keeps the tile's own background behind every picture. */
-.call-layer .tile video { opacity: .999; }
-.call-stage > .tile, .call-stage .spot > .tile, .call-strip .tile { animation: tileIn .3s var(--ease) backwards; }
-.tile-wait { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; justify-items: center; gap: 8px; background: #0A0E1A; transition: opacity .35s var(--ease); }
-.tile-wait.gone { opacity: 0; pointer-events: none; }
-/* What is stacked inside a tile (photo, name, chips) stays inside it, and never sits above the call buttons. */
-.call-layer .tile { isolation: isolate; }
-/* Sharing a screen: the choice of two above the button, the "You're presenting" chip, and screens shown whole
-   (not mirrored, not cropped) on a dark backing. */
-.share-wrap { position: relative; display: flex; }
-.share-menu { position: absolute; bottom: calc(100% + 14px); left: 50%; translate: -50% 0; width: 300px; padding: 6px; border-radius: 18px; display: grid; gap: 2px; background: rgba(20, 24, 42, .97); box-shadow: 0 18px 50px -12px rgba(0, 0, 0, .7); animation: shareUp .18s var(--ease); z-index: 5; }
-@keyframes shareUp { from { opacity: 0; transform: translateY(6px); } }
-.share-menu button { display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 10px 12px; border-radius: 12px; color: var(--text); }
-.share-menu button:hover, .share-menu button:focus-visible { background: rgba(255, 255, 255, .07); }
-.share-menu button svg { flex: none; margin-top: 2px; color: var(--lav); }
-.share-menu b { display: block; font-size: 14px; font-weight: 600; }
-.share-menu small { display: block; margin-top: 2px; font-size: 12px; line-height: 1.35; color: var(--muted); }
-.presenting { display: inline-flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border-radius: 999px; background: rgba(92, 211, 160, .14); color: #A8F0CF; font-size: 13px; font-weight: 600; }
-.presenting i { width: 8px; height: 8px; border-radius: 50%; background: #5CD3A0; animation: livePulse 1.6s ease-in-out infinite; }
-@keyframes livePulse { 50% { opacity: .35; } }
-.presenting button { padding: 4px 12px; border-radius: 999px; background: #5CD3A0; color: #062016; font-weight: 700; font-size: 12px; }
-.tile.screen video, .self-tile.screen video, .my-screen video { object-fit: contain; transform: none; background: #05070D; }
-.self-tile.screen { aspect-ratio: 16 / 10; }
-/* A tall picture (a phone held upright) in a two-person call: the tile takes the picture's shape, no side bars. */
-.call-stage.solo > .tile.tall { aspect-ratio: var(--ar); height: min(calc(100dvh - 230px), 1100px); width: auto; max-width: 100%; justify-self: center; }
-.call-stage.solo > .tile.tall video { object-fit: cover; }
-.tile-net, .net-hint { display: inline-flex; align-items: center; gap: 6px; }
-.tile-net { position: absolute; right: 12px; bottom: 12px; z-index: 2; padding: 4px 10px; border-radius: 10px; background: rgba(4, 6, 13, .72); font-size: 12px; font-weight: 600; color: #FFD9A0; animation: fade .3s var(--ease); }
-.tile-net i, .net-hint i { width: 7px; height: 7px; border-radius: 50%; background: #FFB454; }
-@media (prefers-reduced-motion: reduce) { .call-layer, .call-layer.closing, .call-stage .tile { animation: none; } .tile-wait { transition: none; } }
+.call-controls .glass { display: flex; gap: 10px; padding: 10px; border-radius: 999px; }
 .call-pill { position: fixed; z-index: 85; right: 22px; bottom: 22px; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 16px; border-radius: 999px; }
 .ring { animation: ring 1.7s var(--ease) infinite; }
 @keyframes ring { 50% { transform: scale(1.05); } }
@@ -712,7 +640,7 @@ html[data-call-open] .ambient * { animation-play-state: paused !important; }
 .fs-call { position: fixed; right: 22px; bottom: 22px; z-index: 2147483000; width: 340px; height: 220px; border-radius: 22px; overflow: hidden;
   border: 1px solid rgba(255,255,255,.16); box-shadow: 0 24px 60px -20px rgba(0,0,0,.9); transition: width .35s cubic-bezier(.2,1.2,.4,1), height .35s cubic-bezier(.2,1.2,.4,1); }
 .fs-call.big { width: min(600px, 46vw); height: min(380px, 50vh); }
-.fs-call .call-float { background: rgba(10,12,24,.94); }
+.fs-call .call-float { background: rgba(10,12,24,.78); backdrop-filter: blur(16px); }
 .notify-prompt { padding: 12px 14px; border-radius: 20px; animation: slide-in .6s cubic-bezier(.2,1.3,.4,1); }
 /* Chat: save a photo (files already download on click). */
 .msg-photo { position: relative; display: inline-block; }
@@ -1063,20 +991,19 @@ html[data-room-theme='kirakira'] .call-join { background: #fff; border: 2px soli
 html[data-room-theme='kirakira'] .call-join-icon { background: #00B3A4; color: #fff; }
 
 /* Games on a call: everyone's face in a grid above the game (Call.tsx GameFaces). */
-/* The faces fill the whole width of their panel: no empty strip beside or between them. */
-.game-faces { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 18px; background: #0B0F1E; border: 1px solid rgba(255, 255, 255, .08); }
+.game-faces { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 18px; background: #10142A; border: 1px solid rgba(255, 255, 255, .08); }
 .game-faces-grid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 .game-faces.n2 .game-faces-grid { grid-template-columns: 1fr 1fr; }
 .game-faces.n3 .game-faces-grid { grid-template-columns: repeat(3, 1fr); }
 .game-faces.n4 .game-faces-grid { grid-template-columns: repeat(4, 1fr); }
-.game-face { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #141a2b; box-shadow: inset 0 0 0 2px transparent; transition: box-shadow .2s; }
+.game-face { position: relative; aspect-ratio: 4 / 3; max-height: 150px; border-radius: 12px; overflow: hidden; background: #141a2b; box-shadow: inset 0 0 0 2px transparent; transition: box-shadow .2s; }
 .game-face.speaking { box-shadow: inset 0 0 0 2px var(--mint, #B6DDCF), 0 0 18px -4px rgba(182, 221, 207, .6); }
 .game-face video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .game-face.self video { transform: scaleX(-1); }
 .game-face-name { position: absolute; left: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; background: rgba(0, 0, 0, .5); }
 .game-faces-bar { display: flex; align-items: center; gap: 6px; color: #F4F1EA; }
 .game-faces-bar .muted { color: #C9CEDB; }
-@media (max-width: 640px) { .game-faces-grid { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)) !important; } .game-face { aspect-ratio: 4 / 3; } }
+@media (max-width: 640px) { .game-faces-grid { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)) !important; } .game-face { max-height: 96px; } }
 
 /* "Kabir started Scribble · Join": shown on any tab while you're on the call. */
 .game-invite { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 20px; width: min(460px, calc(100vw - 32px)); border: 1px solid rgba(200, 182, 255, .4); box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .6); animation: gameInviteIn .4s var(--ease, ease) both; }
@@ -1096,3 +1023,9 @@ html[data-room-theme='kirakira'] .call-join-icon { background: #00B3A4; color: #
 .pl-chev { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 50%; color: var(--muted); transition: transform .2s var(--ease, ease), background .15s; flex: none; }
 .pl-details > summary:hover .pl-chev { background: var(--glass-soft); color: var(--text); }
 .pl-details[open] .pl-chev { transform: rotate(180deg); }
+
+/* Call connection hints (weak link; TURN relay not configured). */
+.net-hint { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.net-hint > i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.net-warn { color: var(--gold); font-weight: 600; }
+.call-stats { font-variant-numeric: tabular-nums; letter-spacing: -.01em; opacity: .75; }

@@ -19,7 +19,7 @@ type Description = RTCSessionDescriptionInit;
 type ActiveCall = { id: string; code: string; video: boolean; title: string; starter: CallPeer; members: CallPeer[]; offer?: Description; mine: boolean };
 type Peer = { id: string; name: string; pc: RTCPeerConnection; stream: MediaStream | null; channel: RTCDataChannel | null; sender: RTCRtpSender | null; state: 'connecting' | 'connected' | 'reconnecting'; cameraOff: boolean; /** Showing their screen instead of their camera. */ screen: boolean; muted: boolean; out: { ready: boolean; queue: Candidate[]; timer?: ReturnType<typeof setTimeout> };
   /** 2 or more: this person's app can repair a dropped connection in place (it says so on the data channel). Older apps stay 0 and behave as before. */ caps: number;
-  /** Was connected at least once. */ live: boolean; /** Their picture and sound are arriving badly right now. */ weak: boolean;
+  /** Was connected at least once. */ live: boolean; /** Their picture and sound are arriving badly right now. */ weak: boolean; /** How this link actually connected: 'relay' (through the TURN relay) or 'direct'. */ via?: 'relay' | 'direct';
   fix: { timer?: ReturnType<typeof setTimeout>; tries: number }; net: { lost: number; got: number; freezes: number; score: number; calm: number; target: number } };
 type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; state: Peer['state']; weak: boolean; screen?: boolean };
 /** Messages for features riding on the call (Netflix / Prime watch party): sent to everyone on the call over the
@@ -612,8 +612,12 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   // The quality watch, every 2 s: a person whose picture and sound arrive badly (lost packets, jitter, freezes,
   // a slow round trip) is marked "weak connection", and their picture gets a deeper buffer while that lasts.
   const [selfWeak, setSelfWeak] = useState(false);
+  const [diagLine, setDiagLine] = useState('');
+  const statsPrev = useRef<Map<string, { in: number; out: number; t: number }>>(new Map());
+  // '' = fine, 'no-relay' = the TURN relay isn't configured (calls will drop a lot), 'direct' = relay exists but this call is peer-to-peer.
+  const [diag, setDiag] = useState('');
   useEffect(() => {
-    if (phase !== 'connected') { setSelfWeak(false); return; }
+    if (phase !== 'connected') { setSelfWeak(false); setDiag(''); setDiagLine(''); statsPrev.current.clear(); return; }
     let checking = false;
     const t = setInterval(async () => {
       if (checking) return; checking = true;
@@ -622,12 +626,35 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         for (const p of list) {
           const report = await p.pc.getStats().catch(() => null);
           if (!report || peers.current.get(p.id) !== p) continue;
-          let lost = 0, got = 0, freezes = 0, jitter = 0, rtt = 0;
+          let lost = 0, got = 0, freezes = 0, jitter = 0, rtt = 0; let pair: Record<string, unknown> | null = null; let inV: Record<string, unknown> | null = null; let outV: Record<string, unknown> | null = null;
           report.forEach((r: Record<string, unknown> & { type: string }) => {
             const num = (k: string) => (typeof r[k] === 'number' ? r[k] as number : 0);
-            if (r.type === 'inbound-rtp') { lost += num('packetsLost'); got += num('packetsReceived'); if (r.kind === 'video') { freezes += num('freezeCount'); jitter = Math.max(jitter, num('jitter')); } }
-            else if (r.type === 'candidate-pair' && r.nominated === true && r.state === 'succeeded') rtt = Math.max(rtt, num('currentRoundTripTime'));
+            if (r.type === 'inbound-rtp') { lost += num('packetsLost'); got += num('packetsReceived'); if (r.kind === 'video') { freezes += num('freezeCount'); jitter = Math.max(jitter, num('jitter')); inV = r; } }
+            else if (r.type === 'outbound-rtp' && r.kind === 'video') outV = r;
+            else if (r.type === 'candidate-pair' && r.nominated === true && r.state === 'succeeded') { rtt = Math.max(rtt, num('currentRoundTripTime')); pair = r; }
           });
+          // What path did WebRTC actually pick? 'relay' = through the TURN relay (works on hard networks),
+          // anything else = a direct peer-to-peer link (fails or drops on many mobile / office / NAT networks).
+          const chosen = pair as Record<string, unknown> | null;
+          const stat = (id: unknown) => (report as Map<string, Record<string, unknown>>).get(String(id));
+          const lc = chosen ? stat(chosen.localCandidateId) : null;
+          const rc = chosen ? stat(chosen.remoteCandidateId) : null;
+          const via: 'relay' | 'direct' | undefined = lc ? (lc.candidateType === 'relay' || rc?.candidateType === 'relay' ? 'relay' : 'direct') : p.via;
+          if (via && via !== p.via) { p.via = via; changed = true; }
+          // A plain-language live readout so a bad call can be diagnosed from the real numbers, not guesses.
+          if (p === list[0]) {
+            const now = performance.now(); const prev = statsPrev.current.get(p.id);
+            const iv = inV as Record<string, unknown> | null; const ov = outV as Record<string, unknown> | null;
+            const n2 = (o: Record<string, unknown> | null, k: string) => (o && typeof o[k] === 'number' ? o[k] as number : 0);
+            const inBytes = n2(iv, 'bytesReceived'), outBytes = n2(ov, 'bytesSent');
+            const kbps = (b: number, was: number | undefined) => (was != null && prev ? Math.max(0, Math.round((b - was) * 8 / (now - prev.t))) : 0);
+            const inK = kbps(inBytes, prev?.in), outK = kbps(outBytes, prev?.out);
+            statsPrev.current.set(p.id, { in: inBytes, out: outBytes, t: now });
+            const codec = iv && stat(iv.codecId) ? String(stat(iv.codecId)!.mimeType || '').replace('video/', '') : '';
+            const dim = (o: Record<string, unknown> | null) => n2(o, 'frameWidth') ? `${n2(o, 'frameWidth')}×${n2(o, 'frameHeight')}` : '—';
+            const kb = (k: number) => k >= 1000 ? `${(k / 1000).toFixed(1)}M` : `${k}k`;
+            if (prev) setDiagLine(`in ${dim(iv)} ${Math.round(n2(iv, 'framesPerSecond'))}fps ${kb(inK)} · out ${dim(ov)} ${Math.round(n2(ov, 'framesPerSecond'))}fps ${kb(outK)} · ${Math.round(rtt * 1000)}ms · ${p.via || '…'}${codec ? ' · ' + codec : ''}`);
+          }
           const n = p.net; const first = n.got === 0;
           const dLost = Math.max(0, lost - n.lost), dGot = Math.max(0, got - n.got), dFreeze = Math.max(0, freezes - n.freezes);
           n.lost = lost; n.got = got; n.freezes = freezes;
@@ -643,6 +670,11 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         }
         // Everyone looking bad at once (in a group) means the trouble is on this side.
         setSelfWeak(list.length >= 2 && list.every(p => p.weak));
+        // Connection diagnosis, so drops aren't a mystery: is the TURN relay even available, and are we using it?
+        const relayOffered = hasRelay();
+        const anyDirect = list.some(p => p.via === 'direct');
+        const d = !relayOffered ? 'no-relay' : anyDirect ? 'direct' : '';
+        setDiag(prev => prev === d ? prev : d);
         if (changed) refresh();
       } finally { checking = false; }
     }, 2000);
@@ -760,6 +792,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         <div className="grow"><p className="h3">{group ? call.title : others[0]?.name || call.title}</p><p className="small muted">{!group && others[0]?.muted && connected ? 'Muted · ' : ''}{status}</p></div>
         {error && <span className="small rose">{error}</span>}
         {!error && selfWeak && connected && <span className="small muted net-hint"><i />Your connection is weak</span>}
+        {!error && connected && diagLine && <span className="tiny quiet call-stats" title="Live call stats — screenshot this during a bad moment and send it to Claude.">{diagLine}</span>}
+        {!error && connected && diag === 'no-relay' && <span className="small net-hint net-warn" title="The server didn't give the app a TURN relay, so calls fall back to a direct link that fails on many networks. Set CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_API_TOKEN on the backend."><i />Relay server off — calls may drop. Tell Claude.</span>}
         {sharing && <span className="presenting"><i />You’re presenting{sharing.sound ? ' with sound' : ''}<button onClick={() => stopShare()}>Stop</button></span>}
         {connected && others.length >= 2 && <div className="layout-seg" role="group" aria-label="Layout">
           {(['auto', 'grid', 'speaker'] as Layout[]).map(v => <button key={v} className={layout === v ? 'on' : ''} aria-pressed={layout === v} onClick={() => pickLayout(v)}>{v === 'auto' ? 'Auto' : v === 'grid' ? 'Grid' : 'Speaker'}</button>)}
