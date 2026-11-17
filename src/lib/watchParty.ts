@@ -126,6 +126,12 @@ export function useWatchParty(call: Call, meName: string) {
   const browsing = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Last play / pause / seek by anyone: heartbeats wait a moment after it (the players' reports lag ~1 s). */
   const lastAction = useRef(0);
+  /** A title someone else picked that this player is still opening (its old title must not be announced meanwhile). */
+  const following = useRef({ id: '', from: '', until: 0 });
+  /** When this person last picked (also breaks a tie when two people pick at the same moment). */
+  const myPick = useRef(0);
+  /** The title this player was on when someone else went back to browse: staying on it isn't a new pick. */
+  const stayed = useRef('');
   const st = useRef({ service, status, host, local, peers, sessionId });
   st.current = { service, status, host, local, peers, sessionId };
   const send = useCallback((m: PartyMessage) => call.sendParty(m), [call]);
@@ -167,10 +173,17 @@ export function useWatchParty(call: Call, meName: string) {
       if (s.service && p.service !== s.service) return;
       setLocal(p);
       if (!s.service) return;
-      // On a title: the host announces it; anyone who picks a different title moves everyone there.
-      if (p.id && p.id !== s.sessionId && (s.host || s.status === 'synced' || s.status === 'choosing')) {
-        setSessionId(p.id); setStatus('waiting');
-        send(msg('title', { service: p.service, id: p.id, url: p.url, title: p.title }));
+      // Anyone can pick: a new title on this player moves everyone there and makes this person the one who counts
+      // everyone in. Not while it's still opening a title someone else picked (it reports the old one for a moment).
+      const f = following.current;
+      if (f.id && p.id === f.id) following.current = { id: '', from: '', until: 0 };
+      const opening = !!f.id && p.id !== f.id && (p.id === f.from || Date.now() < f.until);
+      if (stayed.current && p.id !== stayed.current) stayed.current = '';
+      if (p.id && p.id !== s.sessionId && !opening && p.id !== stayed.current) {
+        myPick.current = Date.now() + Math.random();
+        stayed.current = '';
+        setSessionId(p.id); setStatus('waiting'); setHost(true); lastReady.current = { key: '', at: 0 };
+        send(msg('title', { service: p.service, id: p.id, url: p.url, title: p.title, pick: myPick.current }));
         const others = Object.values(s.peers);
         overlay(others.length ? `Waiting for ${firstNames(others)} to open it…` : 'Waiting for the others to join…', 'wait');
       }
@@ -213,19 +226,31 @@ export function useWatchParty(call: Call, meName: string) {
         peer({});
         if (!s.service) setInvite({ service: m.service as Service, from: from.id, fromName: name });
         break;
-      case 'joined': peer({}); if (s.host) { const l = s.local; if (s.sessionId && l) send(msg('title', { service: s.service, id: s.sessionId, url: l.url, title: l.title })); } break;
+      case 'joined': peer({}); if (s.host) { const l = s.local; if (s.sessionId && l) send(msg('title', { service: s.service, id: s.sessionId, url: l.url, title: l.title, pick: myPick.current })); } break;
       case 'title':
         peer({ id: String(m.id), ready: false });
         if (!s.service) { setInvite({ service: m.service as Service, from: from.id, fromName: from.name }); break; }
-        if (m.id !== s.sessionId) {
-          setSessionId(String(m.id)); setStatus('waiting'); lastReady.current = { key: '', at: 0 };
+        {
+          const pick = Number(m.pick) || 0; const mine = myPick.current;
+          if (m.id === s.sessionId) {
+            // Same title: whoever picked it later counts everyone in (exactly one person does).
+            if (s.host && !(mine > pick)) setHost(false);
+            break;
+          }
+          // Both picked at the same moment: the later pick wins on both sides.
+          if (s.host && mine && Date.now() - mine < 3000 && mine > pick) break;
+          setHost(false); setSessionId(String(m.id)); setStatus('waiting'); setNote(''); lastReady.current = { key: '', at: 0 };
           // Already on it (the next episode started here too): nothing to open, no reload.
-          if (s.local?.id !== m.id) { extension.send({ type: 'open', service: m.service, url: m.url, focus: true }); overlay(`${from.name.split(' ')[0]} picked “${String(m.title || 'something')}”. Opening it…`, 'wait'); }
+          if (s.local?.id !== m.id) {
+            following.current = { id: String(m.id), from: s.local?.id || '', until: Date.now() + 3000 };
+            extension.send({ type: 'open', service: m.service, url: m.url, focus: true });
+            overlay(`${from.name.split(' ')[0]} picked “${String(m.title || 'something')}”. Opening it…`, 'wait');
+          }
         }
         break;
       case 'browsing':
         peer({ id: '', ready: false });
-        if (s.service) { setSessionId(''); setStatus('waiting'); cmd('pause'); overlay(`${from.name.split(' ')[0]} is picking something else…`, 'wait'); }
+        if (s.service) { setSessionId(''); setStatus('choosing'); following.current = { id: '', from: '', until: 0 }; stayed.current = s.local?.id || ''; cmd('pause'); overlay(`${from.name.split(' ')[0]} is picking something else…`, 'wait'); }
         break;
       case 'ready': peer({ id: String(m.id), ready: !!m.ready, t: Number(m.t) || 0, paused: !!m.paused, at: Date.now() }); break;
       case 'go': {
