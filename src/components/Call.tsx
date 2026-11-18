@@ -59,7 +59,9 @@ const SCREEN = [2_500_000, 1_500_000, 1_000_000, 800_000];
 type ShareKind = 'detail' | 'motion';
 /** Your microphone and a shared screen's sound, mixed into the one voice track everyone already receives. */
 type Mix = { ctx: AudioContext; out: MediaStreamTrack; mic: MediaStreamAudioSourceNode | null; dest: MediaStreamAudioDestinationNode };
-async function tune(sender: RTCRtpSender | null | undefined, others: number, screen: ShareKind | null = null) {
+/** Weak uplink (mobile data): send a smaller, steadier picture instead of letting a big one collapse into blocks.
+ *  cap 0 = fine, 1 = weak (<~700 kbps up), 2 = very weak (<~300 kbps). */
+async function tune(sender: RTCRtpSender | null | undefined, others: number, screen: ShareKind | null = null, cap = 0, avail = 0) {
   if (!sender?.track || sender.track.kind !== 'video') return;
   try {
     const params = sender.getParameters() as RTCRtpSendParameters & { degradationPreference?: string };
@@ -73,8 +75,12 @@ async function tune(sender: RTCRtpSender | null | undefined, others: number, scr
     }
     sender.track.contentHint = 'motion';
     const q = SEND[Math.min(Math.max(others, 1), SEND.length) - 1];
-    params.encodings.forEach(e => { e.maxBitrate = q.bitrate; e.maxFramerate = q.fps; e.scaleResolutionDownBy = q.scale; e.priority = 'high'; e.networkPriority = 'high'; });
-    params.degradationPreference = 'balanced';
+    const weak = cap > 0;
+    const bitrate = weak ? Math.max(120_000, Math.min(q.bitrate, Math.round((avail || 500_000) * 0.85))) : q.bitrate;
+    const scale = cap === 2 ? Math.max(q.scale, 3) : weak ? Math.max(q.scale, 2) : q.scale;
+    const fps = cap === 2 ? Math.min(q.fps, 20) : weak ? Math.min(q.fps, 24) : q.fps;
+    params.encodings.forEach(e => { e.maxBitrate = bitrate; e.maxFramerate = fps; e.scaleResolutionDownBy = scale; e.priority = 'high'; e.networkPriority = 'high'; });
+    params.degradationPreference = weak ? 'maintain-framerate' : 'balanced';
     await sender.setParameters(params);
   } catch { /* the browser keeps its defaults */ }
 }
@@ -228,6 +234,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     track.addEventListener('ended', () => setMicCheck(n => n + 1));
     setMicLabel(track.label);
   }
+  const capOf = useRef(new Map<string, number>()); const availOf = useRef(new Map<string, number>());
   function createPeer(person: CallPeer, target: ActiveCall, { offerer, ready }: { offerer: boolean; ready: boolean }) {
     removePeer(person.id);
     const pc = new RTCPeerConnection({ iceServers: ice.current || [], iceCandidatePoolSize: 2 });
@@ -238,6 +245,15 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     (shown?.mix ? [shown.mix.out] : media.getAudioTracks()).forEach(t => pc.addTrack(t, media));
     const cam = shown?.video || media.getVideoTracks()[0];
     peer.sender = cam ? pc.addTrack(cam, media) : pc.addTransceiver('video', { direction: 'sendrecv' }).sender;
+    // Better picture per bit than the VP8 default: VP9 on computers (phones keep the default, which they encode in hardware).
+    try {
+      const tr = pc.getTransceivers().find(t => t.sender === peer.sender);
+      const caps = RTCRtpReceiver.getCapabilities?.('video')?.codecs;
+      if (tr && caps && typeof tr.setCodecPreferences === 'function' && !/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)) {
+        const rank = (c: { mimeType: string }) => /vp9/i.test(c.mimeType) ? 0 : /vp8/i.test(c.mimeType) ? 1 : /h264/i.test(c.mimeType) ? 2 : 3;
+        tr.setCodecPreferences([...caps].sort((a, b) => rank(a) - rank(b)));
+      }
+    } catch { /* keep the browser default */ }
     if (offerer) attach(peer, pc.createDataChannel('media-state', { ordered: true }));
     pc.ondatachannel = e => attach(peer, e.channel);
     pc.ontrack = e => {
@@ -265,7 +281,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     refresh();
     return peer;
   }
-  function tuneAll() { const n = peers.current.size; const kind = screen.current?.kind ?? null; for (const p of peers.current.values()) void tune(p.sender, n, kind); }
+  function tuneAll() { const n = peers.current.size; const kind = screen.current?.kind ?? null; for (const p of peers.current.values()) void tune(p.sender, n, kind, capOf.current.get(p.id) || 0, availOf.current.get(p.id) || 0); }
   /** Repair a dropped connection without hanging up (an ICE restart): the lower ID sends a fresh offer over the same
    *  connection, the other side asks for one. Only between apps that both announced it (`v: 2`); with anyone else
    *  nothing changes. Tried again every 6 s until it is back or the "reconnecting" time limit ends the call. */
@@ -639,6 +655,15 @@ export function CallProvider({ children }: React.PropsWithChildren) {
           const stat = (id: unknown) => (report as Map<string, Record<string, unknown>>).get(String(id));
           const lc = chosen ? stat(chosen.localCandidateId) : null;
           const rc = chosen ? stat(chosen.remoteCandidateId) : null;
+          const availUp = chosen && typeof chosen.availableOutgoingBitrate === 'number' ? chosen.availableOutgoingBitrate as number : 0;
+          if (availUp > 0) {
+            const was = capOf.current.get(p.id) || 0;
+            const want = availUp < 300_000 ? 2 : availUp < 700_000 ? 1 : 0;
+            // Step down at once, step back up only when clearly better (stops flip-flopping).
+            const next = want > was ? want : (want < was && availUp > (was === 2 ? 450_000 : 1_000_000) ? want : was);
+            availOf.current.set(p.id, availUp);
+            if (next !== was) { capOf.current.set(p.id, next); void tune(p.sender, list.length, screen.current?.kind ?? null, next, availUp); }
+          }
           const via: 'relay' | 'direct' | undefined = lc ? (lc.candidateType === 'relay' || rc?.candidateType === 'relay' ? 'relay' : 'direct') : p.via;
           if (via && via !== p.via) { p.via = via; changed = true; }
           // A plain-language live readout so a bad call can be diagnosed from the real numbers, not guesses.
