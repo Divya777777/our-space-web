@@ -1075,12 +1075,7 @@ function FloatTile({ p, video, pinned, speaking, onPin, onPick }: { p: PeerView;
 /** Remote voices play through hidden audio elements so they keep going when the call window is minimised. */
 function RemoteAudio({ stream, sinkId }: { stream: MediaStream | null; sinkId: string }) {
   const ref = useRef<HTMLAudioElement>(null);
-  useEffect(() => { if (ref.current && stream && ref.current.srcObject !== stream) { ref.current.srcObject = stream; void ref.current.play().catch(() => {}); }
-    // Safari: the picture can arrive after the voice; nudge playback again whenever a track is added.
-    const v = ref.current; const again = () => { void v?.play().catch(() => {}); };
-    stream.addEventListener('addtrack', again); v?.addEventListener('loadedmetadata', again);
-    return () => { stream.removeEventListener('addtrack', again); v?.removeEventListener('loadedmetadata', again); };
-  }, [stream]);
+  useEffect(() => { if (ref.current && stream && ref.current.srcObject !== stream) { ref.current.srcObject = stream; void ref.current.play().catch(() => {}); }  }, [stream]);
   // The chosen speaker ('' = the computer's default). Only some browsers can choose (Chrome, Edge).
   useEffect(() => { const el = ref.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null; if (el?.setSinkId && canPickSpeaker) void el.setSinkId(sinkId).catch(() => {}); }, [sinkId]);
   return <audio ref={ref} autoPlay />;

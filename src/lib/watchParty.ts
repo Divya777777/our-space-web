@@ -80,7 +80,7 @@ const env = import.meta.env as Record<string, string | undefined>;
 /** The store page for this browser (empty until that listing is live). */
 /** The published Chrome Web Store listing (Chrome, Edge, Brave, Opera install from here). */
 const CHROME_STORE_ID = 'piogabgjbabmafpglkdfhnjlmmofhlbl';
-export const EXTENSION_URL = (isFirefox ? (env.VITE_FIREFOX_EXTENSION_URL || 'https://addons.mozilla.org/firefox/search/?q=Our%20Space%20Watch%20together') : env.VITE_EXTENSION_URL || `https://chromewebstore.google.com/detail/${CHROME_STORE_ID}`) || '';
+export const EXTENSION_URL = (isFirefox ? (env.VITE_FIREFOX_EXTENSION_URL || 'https://addons.mozilla.org/firefox/addon/our-space-watch-together/') : env.VITE_EXTENSION_URL || `https://chromewebstore.google.com/detail/${CHROME_STORE_ID}`) || '';
 /** The test download for this browser (until the store listing is live). */
 export const TEST_ZIP = isFirefox ? 'ourspace-extension-firefox.zip' : 'ourspace-extension.zip';
 /** The store version's ID (once published) and the test version's fixed ID (from the key in extension/manifest.json). */
