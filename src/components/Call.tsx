@@ -249,7 +249,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     try {
       const tr = pc.getTransceivers().find(t => t.sender === peer.sender);
       const caps = RTCRtpReceiver.getCapabilities?.('video')?.codecs;
-      if (tr && caps && typeof tr.setCodecPreferences === 'function' && !/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)) {
+      if (tr && caps && typeof tr.setCodecPreferences === 'function' && /Chrome\//.test(navigator.userAgent) && !/Firefox|Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)) {
         const rank = (c: { mimeType: string }) => /vp9/i.test(c.mimeType) ? 0 : /vp8/i.test(c.mimeType) ? 1 : /h264/i.test(c.mimeType) ? 2 : 3;
         tr.setCodecPreferences([...caps].sort((a, b) => rank(a) - rank(b)));
       }
@@ -1017,7 +1017,12 @@ function PillFace({ p, big, onPick }: { p: PeerView; big: boolean; onPick: () =>
 function VideoEl({ stream, muted, remote, onPicture, veiled }: { stream: MediaStream; muted?: boolean; remote?: boolean; /** Loaded and playing but not drawn yet. */ veiled?: boolean; /** Called with width / height when the first frame arrives and when the picture's shape changes. */ onPicture?: (ratio: number) => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   const tell = useRef(onPicture); tell.current = onPicture;
-  useEffect(() => { if (ref.current && ref.current.srcObject !== stream) { ref.current.srcObject = stream; void ref.current.play().catch(() => {}); } }, [stream]);
+  useEffect(() => { if (ref.current && ref.current.srcObject !== stream) { ref.current.srcObject = stream; void ref.current.play().catch(() => {}); }
+    // Safari: the picture can arrive after the voice; nudge playback again whenever a track is added.
+    const v = ref.current; const again = () => { void v?.play().catch(() => {}); };
+    stream.addEventListener('addtrack', again); v?.addEventListener('loadedmetadata', again);
+    return () => { stream.removeEventListener('addtrack', again); v?.removeEventListener('loadedmetadata', again); };
+  }, [stream]);
   // Say when the first frame is here, and its shape (the tile shows the person's photo until then).
   useEffect(() => {
     const v = ref.current; if (!v || !tell.current) return;
@@ -1070,7 +1075,12 @@ function FloatTile({ p, video, pinned, speaking, onPin, onPick }: { p: PeerView;
 /** Remote voices play through hidden audio elements so they keep going when the call window is minimised. */
 function RemoteAudio({ stream, sinkId }: { stream: MediaStream | null; sinkId: string }) {
   const ref = useRef<HTMLAudioElement>(null);
-  useEffect(() => { if (ref.current && stream && ref.current.srcObject !== stream) { ref.current.srcObject = stream; void ref.current.play().catch(() => {}); } }, [stream]);
+  useEffect(() => { if (ref.current && stream && ref.current.srcObject !== stream) { ref.current.srcObject = stream; void ref.current.play().catch(() => {}); }
+    // Safari: the picture can arrive after the voice; nudge playback again whenever a track is added.
+    const v = ref.current; const again = () => { void v?.play().catch(() => {}); };
+    stream.addEventListener('addtrack', again); v?.addEventListener('loadedmetadata', again);
+    return () => { stream.removeEventListener('addtrack', again); v?.removeEventListener('loadedmetadata', again); };
+  }, [stream]);
   // The chosen speaker ('' = the computer's default). Only some browsers can choose (Chrome, Edge).
   useEffect(() => { const el = ref.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null; if (el?.setSinkId && canPickSpeaker) void el.setSinkId(sinkId).catch(() => {}); }, [sinkId]);
   return <audio ref={ref} autoPlay />;
