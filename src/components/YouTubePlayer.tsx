@@ -48,6 +48,8 @@ export type PlayerEvents = {
 export default function YouTubePlayer({ playback, volume = 100, events, follow, nudge = 0 }: { playback: Playback; volume?: number; events: PlayerEvents; follow?: () => number | null; nudge?: number }) {
   const mirror = useRef(follow); mirror.current = follow;
   const isMirror = !!follow;
+  // Candidate mitigation for the reported Windows Firefox black screen only.
+  const guardStartup = /Windows/.test(navigator.userAgent) && /Firefox\//.test(navigator.userAgent);
   const host = useRef<HTMLDivElement>(null);
   const player = useRef<YTPlayer | null>(null);
   const [ready, setReady] = useState(false);
@@ -164,12 +166,22 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow, 
         if (Date.now() < s.quietUntil || ps === 3) { if (playing && ps !== 1 && ps !== 3) p.playVideo(); return; }
         if (Math.abs(p.getCurrentTime() - pos) > 1.5) { s.off = (s.off || 0) + 1; if (s.off >= 2) { s.off = 0; s.quietUntil = Date.now() + 6000; p.seekTo(pos + (playing ? 1 : 0), true); } }
         else s.off = 0;
+      } else if (guardStartup) {
+        // The room's Play button can reach a cued/paused player before its video has started.
+        // Start it first: seeking here also starts a cued video, and following that with playVideo
+        // or another sync seek can interrupt loading. Let buffering finish before correcting drift.
+        if (playing && (ps === -1 || ps === 5 || ps === 2)) {
+          s.quietUntil = Date.now() + 2500; p.playVideo(); return;
+        }
+        if ((ps === 1 || ps === 2) && Date.now() >= s.quietUntil && Math.abs(p.getCurrentTime() - pos) > 2) {
+          s.quietUntil = Date.now() + 1200; p.seekTo(pos, true);
+        }
       } else if (Math.abs(p.getCurrentTime() - pos) > 2) { s.quietUntil = Date.now() + 1200; p.seekTo(pos, true); }
       if (playing) { if (ps !== 1 && ps !== 3) { s.quietUntil = Date.now() + 1200; p.playVideo(); } }
       else if (ps === 1 || ps === 3) { s.quietUntil = Date.now() + 1200; p.pauseVideo(); }
     };
     apply(); const t = setInterval(apply, isMirror ? 1000 : 5000); return () => clearInterval(t);
-  }, [ready, videoId, playing, position, updatedAt, revision, isMirror]);
+  }, [ready, videoId, playing, position, updatedAt, revision, isMirror, guardStartup]);
 
   return <div className="yt-host" ref={host} />;
 }

@@ -8,6 +8,8 @@ import { createPortal } from 'react-dom';
 import { usePip, useWantPip } from '../lib/pip';
 import { useSpace } from '../lib/space';
 import { actionableSignals } from '../lib/callProtocol';
+import { cameraBitrate, newUploadQuality, updateUploadQuality, uploadSample } from '../lib/callQuality';
+import type { UploadQuality } from '../lib/callQuality';
 import type { CallPeer, CallSignal } from '../lib/types';
 import type { LiveCall } from '../lib/model';
 import { Avatar, IconButton, firstName, useToast } from './ui';
@@ -20,6 +22,7 @@ type ActiveCall = { id: string; code: string; video: boolean; title: string; sta
 type Peer = { id: string; name: string; pc: RTCPeerConnection; stream: MediaStream | null; channel: RTCDataChannel | null; sender: RTCRtpSender | null; state: 'connecting' | 'connected' | 'reconnecting'; cameraOff: boolean; /** Showing their screen instead of their camera. */ screen: boolean; muted: boolean; out: { ready: boolean; queue: Candidate[]; timer?: ReturnType<typeof setTimeout> };
   /** 2 or more: this person's app can repair a dropped connection in place (it says so on the data channel). Older apps stay 0 and behave as before. */ caps: number;
   /** Was connected at least once. */ live: boolean; /** Their picture and sound are arriving badly right now. */ weak: boolean; /** How this link actually connected: 'relay' (through the TURN relay) or 'direct'. */ via?: 'relay' | 'direct';
+  upload: UploadQuality;
   fix: { timer?: ReturnType<typeof setTimeout>; tries: number }; net: { lost: number; got: number; freezes: number; score: number; calm: number; target: number } };
 type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; state: Peer['state']; weak: boolean; screen?: boolean };
 /** Messages for features riding on the call (Netflix / Prime watch party): sent to everyone on the call over the
@@ -61,7 +64,16 @@ type ShareKind = 'detail' | 'motion';
 type Mix = { ctx: AudioContext; out: MediaStreamTrack; mic: MediaStreamAudioSourceNode | null; dest: MediaStreamAudioDestinationNode };
 /** Weak uplink (mobile data): send a smaller, steadier picture instead of letting a big one collapse into blocks.
  *  cap 0 = fine, 1 = weak (<~700 kbps up), 2 = very weak (<~300 kbps). */
-async function tune(sender: RTCRtpSender | null | undefined, others: number, screen: ShareKind | null = null, cap = 0, avail = 0) {
+const tuning = new WeakMap<RTCRtpSender, Promise<void>>();
+function tune(sender: RTCRtpSender | null | undefined, others: number, screen: ShareKind | null = null, cap = 0, avail = 0) {
+  if (!sender) return Promise.resolve();
+  // getParameters/setParameters form a transaction. Stats, camera and group changes
+  // must not race using the same transactionId.
+  const next = (tuning.get(sender) || Promise.resolve()).then(() => tuneSender(sender, others, screen, cap, avail));
+  tuning.set(sender, next);
+  return next;
+}
+async function tuneSender(sender: RTCRtpSender, others: number, screen: ShareKind | null, cap: number, avail: number) {
   if (!sender?.track || sender.track.kind !== 'video') return;
   try {
     const params = sender.getParameters() as RTCRtpSendParameters & { degradationPreference?: string };
@@ -76,7 +88,7 @@ async function tune(sender: RTCRtpSender | null | undefined, others: number, scr
     sender.track.contentHint = 'motion';
     const q = SEND[Math.min(Math.max(others, 1), SEND.length) - 1];
     const weak = cap > 0;
-    const bitrate = weak ? Math.max(120_000, Math.min(q.bitrate, Math.round((avail || 500_000) * 0.85))) : q.bitrate;
+    const bitrate = cameraBitrate(q.bitrate, cap, avail);
     const scale = cap === 2 ? Math.max(q.scale, 3) : weak ? Math.max(q.scale, 2) : q.scale;
     const fps = cap === 2 ? Math.min(q.fps, 20) : weak ? Math.min(q.fps, 24) : q.fps;
     params.encodings.forEach(e => { e.maxBitrate = bitrate; e.maxFramerate = fps; e.scaleResolutionDownBy = scale; e.priority = 'high'; e.networkPriority = 'high'; });
@@ -234,11 +246,10 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     track.addEventListener('ended', () => setMicCheck(n => n + 1));
     setMicLabel(track.label);
   }
-  const capOf = useRef(new Map<string, number>()); const availOf = useRef(new Map<string, number>());
   function createPeer(person: CallPeer, target: ActiveCall, { offerer, ready }: { offerer: boolean; ready: boolean }) {
     removePeer(person.id);
     const pc = new RTCPeerConnection({ iceServers: ice.current || [], iceCandidatePoolSize: 2 });
-    const peer: Peer = { id: person.id, name: person.name, pc, stream: null, channel: null, sender: null, state: 'connecting', cameraOff: !target.video, screen: false, muted: false, out: { ready, queue: [] }, caps: 0, live: false, weak: false, fix: { tries: 0 }, net: { lost: 0, got: 0, freezes: 0, score: 0, calm: 0, target: VIDEO_BUFFER } };
+    const peer: Peer = { id: person.id, name: person.name, pc, stream: null, channel: null, sender: null, state: 'connecting', cameraOff: !target.video, screen: false, muted: false, out: { ready, queue: [] }, caps: 0, live: false, weak: false, upload: newUploadQuality(), fix: { tries: 0 }, net: { lost: 0, got: 0, freezes: 0, score: 0, calm: 0, target: VIDEO_BUFFER } };
     peers.current.set(person.id, peer);
     const media = stream.current!;
     const shown = screen.current;
@@ -281,7 +292,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     refresh();
     return peer;
   }
-  function tuneAll() { const n = peers.current.size; const kind = screen.current?.kind ?? null; for (const p of peers.current.values()) void tune(p.sender, n, kind, capOf.current.get(p.id) || 0, availOf.current.get(p.id) || 0); }
+  function tuneAll() { const n = peers.current.size; const kind = screen.current?.kind ?? null; for (const p of peers.current.values()) void tune(p.sender, n, kind, p.upload.cap, p.upload.available); }
   /** Repair a dropped connection without hanging up (an ICE restart): the lower ID sends a fresh offer over the same
    *  connection, the other side asks for one. Only between apps that both announced it (`v: 2`); with anyone else
    *  nothing changes. Tried again every 6 s until it is back or the "reconnecting" time limit ends the call. */
@@ -649,20 +660,17 @@ export function CallProvider({ children }: React.PropsWithChildren) {
             else if (r.type === 'outbound-rtp' && r.kind === 'video') outV = r;
             else if (r.type === 'candidate-pair' && r.nominated === true && r.state === 'succeeded') { rtt = Math.max(rtt, num('currentRoundTripTime')); pair = r; }
           });
-          // What path did WebRTC actually pick? 'relay' = through the TURN relay (works on hard networks),
-          // anything else = a direct peer-to-peer link (fails or drops on many mobile / office / NAT networks).
-          const chosen = pair as Record<string, unknown> | null;
+          // Prefer the transport's selected pair; multiple nominated pairs can coexist during handover.
           const stat = (id: unknown) => (report as Map<string, Record<string, unknown>>).get(String(id));
+          const outgoing = outV as Record<string, unknown> | null;
+          const transport = outgoing ? stat(outgoing.transportId) : undefined;
+          const chosen = (transport ? stat(transport.selectedCandidatePairId) : undefined) || pair as Record<string, unknown> | null;
+          if (chosen && typeof chosen.currentRoundTripTime === 'number') rtt = chosen.currentRoundTripTime;
           const lc = chosen ? stat(chosen.localCandidateId) : null;
           const rc = chosen ? stat(chosen.remoteCandidateId) : null;
-          const availUp = chosen && typeof chosen.availableOutgoingBitrate === 'number' ? chosen.availableOutgoingBitrate as number : 0;
-          if (availUp > 0) {
-            const was = capOf.current.get(p.id) || 0;
-            const want = availUp < 300_000 ? 2 : availUp < 700_000 ? 1 : 0;
-            // Step down at once, step back up only when clearly better (stops flip-flopping).
-            const next = want > was ? want : (want < was && availUp > (was === 2 ? 450_000 : 1_000_000) ? want : was);
-            availOf.current.set(p.id, availUp);
-            if (next !== was) { capOf.current.set(p.id, next); void tune(p.sender, list.length, screen.current?.kind ?? null, next, availUp); }
+          if (updateUploadQuality(p.upload, uploadSample(report as Map<string, Record<string, unknown>>, outgoing, chosen))) {
+            await tune(p.sender, peers.current.size, screen.current?.kind ?? null, p.upload.cap, p.upload.available);
+            if (peers.current.get(p.id) !== p) continue;
           }
           const via: 'relay' | 'direct' | undefined = lc ? (lc.candidateType === 'relay' || rc?.candidateType === 'relay' ? 'relay' : 'direct') : p.via;
           if (via && via !== p.via) { p.via = via; changed = true; }

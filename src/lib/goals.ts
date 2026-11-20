@@ -12,8 +12,11 @@ export type Goal = {
 };
 export type GoalPerson = { id: string; name: string; joined: boolean; value: number | null; cheeredByMe?: boolean };
 export type GoalsToday = { day: string; partner: { id: string; name: string } | null; goals: Goal[] };
-export type MonthDay = { d: number; future?: boolean; me?: number | null; them?: number | null; rows?: { goalId: string; name: string; w: 'me' | 'them'; ok: boolean }[] };
-export type GoalsMonth = { month: string; partner: { id: string; name: string } | null; days: MonthDay[]; rates: { name: string; w: 'me' | 'them'; pct: number }[] };
+export type MonthRow = { goalId: string; name: string; w: 'me' | 'them' | null; userId: string; ok: boolean;
+  value: number | null; target: number; unit: string; kind: GoalKind; track: GoalTrack; inc: number;
+  progressPct: number; status: 'complete' | 'partial' | 'unlogged' | 'incomplete'; historyEstimated?: boolean };
+export type MonthDay = { d: number; future?: boolean; me?: number | null; them?: number | null; rows?: MonthRow[] };
+export type GoalsMonth = { month: string; today?: string; detailVersion?: number; members?: { id: string; name: string }[]; partner: { id: string; name: string } | null; days: MonthDay[]; rates: { name: string; w: 'me' | 'them'; pct: number }[] };
 export type GoalDraft = { kind: GoalKind; name: string; target: number; unit: string; track: GoalTrack; inc: number; owner: 'me' | 'both'; span: GoalSpan; remind: boolean; /** Group rooms: who else the goal is for (user ids). */ people?: string[] };
 
 export const TEMPLATES: { kind: GoalKind; label: string; name: string; target: number; unit: string; track: GoalTrack; inc: number; how: (health: string) => string }[] = [
@@ -49,7 +52,7 @@ export function liveGoals(api: Api, code: string): GoalsApi {
     month: (month, today) => api<GoalsMonth>(`/rooms/${code}/goals-month?month=${month}&today=${today}`),
     create: async (draft, day) => { const { people, ...rest } = draft; await api(base, { ...rest, ...(people ? { people: people.map(Number) } : {}), target: draft.track === 'check' ? 1 : draft.target, inc: draft.kind === 'steps' ? 1000 : draft.inc, day }, 'POST'); },
     progress: async (id, day, value) => { await api(`${base}/${id}/progress`, { day, value }, 'POST'); },
-    join: async id => { await api(`${base}/${id}/join`, {}, 'POST'); },
+    join: async id => { await api(`${base}/${id}/join`, { day: localDay() }, 'POST'); },
     cheer: async (id, day, to) => { await api(`${base}/${id}/cheer`, { day, ...(to ? { to: Number(to) } : {}) }, 'POST'); },
     remove: async (id, day) => { await api(`${base}/${id}?day=${day}`, { day }, 'DELETE'); },
   };

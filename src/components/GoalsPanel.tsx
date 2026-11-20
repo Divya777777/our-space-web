@@ -1,12 +1,13 @@
 // Goals: daily score rings for you and your person, goal cards, add a goal in two steps, and the monthly record.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSpace } from '../lib/space';
-import { Goal, GoalDraft, GoalPerson, GoalsMonth, GoalsToday, TEMPLATES, done, liveGoals, localDay, monthKey, newDraft } from '../lib/goals';
+import { Goal, GoalDraft, GoalPerson, GoalsToday, TEMPLATES, done, liveGoals, localDay, newDraft } from '../lib/goals';
 
 import { Avatar, Button, IconButton, Notice, Segments, Sheet, Skeleton, useConfirm, useToast } from './ui';
 import { Icon, IconName } from './Icon';
 import { GetAppPrompt } from './GetApp';
 import { roomFx } from './WorldThemes';
+import { GoalMonthReview } from './GoalMonthReview';
 
 const fmt = (n: number) => Number(n).toLocaleString();
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -35,6 +36,8 @@ export function GoalsPanel({ code, version }: { code: string; version?: number }
   const [filter, setFilter] = useState<'all' | 'together' | 'mine' | 'theirs'>('all');
   const [draft, setDraft] = useState<GoalDraft | null>(null);
   const [month, setMonth] = useState(false);
+  const [openingMonth, setOpeningMonth] = useState(false);
+  const saveQueues = useRef(new Map<string, Promise<void>>());
   // Stable, so the month sheet loads once per month shown (a new function each render made it reload, and flicker, non-stop).
   const loadMonth = useCallback((m: string, today: string) => api.month(m, today), [api]);
   // Quick clicks on + / − / ✓ change the number at once and are saved together a moment after the last click.
@@ -65,12 +68,14 @@ export function GoalsPanel({ code, version }: { code: string; version?: number }
     const entry = pending.current.get(id); if (!entry) return;
     entry.timer = undefined;
     const sent = entry.value;
-    void api.progress(id, localDay(), sent).then(() => {
+    const saveDay = localDay();
+    const operation = (saveQueues.current.get(id) || Promise.resolve()).then(() => api.progress(id, saveDay, sent)).then(() => {
       if (pending.current.get(id) === entry && entry.value === sent) pending.current.delete(id);
     }).catch(e => {
       if (pending.current.get(id) !== entry || entry.value !== sent) return;
       pending.current.delete(id); patch(id, { me: entry.was }); toast((e as Error).message, { tone: 'error' });
-    });
+    }).finally(() => { if (saveQueues.current.get(id) === operation) saveQueues.current.delete(id); });
+    saveQueues.current.set(id, operation);
   };
   /** `update` gets the newest value (including clicks not saved yet). */
   const setValue = (g: Goal, update: (current: number) => number) => {
@@ -101,7 +106,13 @@ export function GoalsPanel({ code, version }: { code: string; version?: number }
   const list = data.goals.filter(g => filter === 'all' || (filter === 'together' && g.owner === 'both') || (filter === 'mine' && g.owner === 'me') || (filter === 'theirs' && g.owner === 'them'));
 
   return <div className="col gap-16">
-    <div className="row between"><span className="small muted">{new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}</span><Button size="sm" variant="ghost" onClick={() => setMonth(true)}>This month</Button></div>
+    <div className="row between"><span className="small muted">{new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}</span><Button size="sm" variant="ghost" busy={openingMonth} onClick={async () => {
+      setOpeningMonth(true);
+      try {
+        for (const [id, entry] of pending.current) { if (entry.timer) clearTimeout(entry.timer); flush(id); }
+        await Promise.all([...saveQueues.current.values()]); setMonth(true);
+      } finally { setOpeningMonth(false); }
+    }}>This month</Button></div>
     <div className="inset col gap-16" style={{ padding: 16 }}>
       <div className="row"><Ring pct={ms} color="var(--lav)" label="You" sub={`${mineList.filter(g => done(g, 'me')).length} of ${mineList.length} done`} />{group ? <Ring pct={ts} color="var(--mint)" label="Everyone else" sub={`${othersOnGoals.filter(Boolean).length} of ${othersOnGoals.length} done`} /> : <Ring pct={ts} color="var(--mint)" label={partner} sub={`${theirList.filter(g => done(g, 'them')).length} of ${theirList.length} done`} />}</div>
       <p className="small row gap-8" style={{ background: 'rgba(255,255,255,.05)', padding: '10px 12px', borderRadius: 12 }}><Icon name="moon" size={16} />{nudge}</p>
@@ -115,8 +126,8 @@ export function GoalsPanel({ code, version }: { code: string; version?: number }
     {!list.length && <p className="small muted" style={{ textAlign: 'center', padding: 12 }}>No goals here yet.</p>}
     <Button variant="secondary" icon="plus" onClick={() => { const d = newDraft(); const free = TEMPLATES.find(x => !taken.has(x.kind)) || TEMPLATES[5]; setDraft({ ...d, kind: free.kind, name: free.name, target: free.target, unit: free.unit, track: free.track, inc: free.inc }); }}>Add a goal</Button>
     {draft && <AddGoal draft={draft} taken={taken} partner={partner} hasPartner={!!data.partner} members={group ? members : null} onChange={setDraft} onClose={() => setDraft(null)}
-      onSave={async d => { const send = group ? { ...d, people: d.people || [], owner: (d.people?.length ? 'both' : 'me') as GoalDraft['owner'] } : d; await api.create(send, localDay()); setDraft(null); const n = send.people?.length || 0; toast(group ? (n ? `Added — ${n === 1 ? members.find(m => m.id === send.people![0])?.name.split(' ')[0] || '1 person' : `${n} people`} ${n === 1 ? 'was' : 'were'} asked to join` : 'Goal added to today') : d.owner === 'both' ? `Added — ${partner} was asked to join` : 'Goal added to today', { icon: 'check' }); void load(); }} />}
-    {month && <MonthSheet load={loadMonth} partner={partner} solo={group} onClose={() => setMonth(false)} />}
+      onSave={async d => { const send = group ? { ...d, people: d.people || [], owner: (d.people?.length ? 'both' : 'me') as GoalDraft['owner'] } : { ...d, people: d.owner === 'both' ? members.map(m => m.id) : [] }; await api.create(send, localDay()); setDraft(null); const n = send.people?.length || 0; toast(group ? (n ? `Added — ${n === 1 ? members.find(m => m.id === send.people![0])?.name.split(' ')[0] || '1 person' : `${n} people`} ${n === 1 ? 'was' : 'were'} asked to join` : 'Goal added to today') : d.owner === 'both' ? `Added — ${partner} was asked to join` : 'Goal added to today', { icon: 'check' }); void load(); }} />}
+    {month && <GoalMonthReview load={loadMonth} log={api.progress} userId={space.user.id} version={version} onChanged={() => void load()} onClose={() => setMonth(false)} />}
   </div>;
 }
 
@@ -190,32 +201,6 @@ function AddGoal({ draft: d, taken, partner, hasPartner, members, onChange, onCl
     <div className="chips">{spans.map(([k, l]) => <button key={k} className={`chip ${d.span === k ? 'on' : ''}`} onClick={() => set({ span: k })}>{l}</button>)}</div>
     <label className="row gap-8 small"><input type="checkbox" checked={d.remind} onChange={e => set({ remind: e.target.checked })} /> Evening reminder on the phone app if it isn’t done yet</label>
     {error && <Notice tone="error">{error}</Notice>}
-  </Sheet>;
-}
-
-function MonthSheet({ load, partner, solo, onClose }: { load: (m: string, today: string) => Promise<GoalsMonth>; partner: string; solo?: boolean; onClose: () => void }) {
-  const [at, setAt] = useState(() => new Date());
-  const [who, setWho] = useState<'me' | 'them'>('me');
-  const [data, setData] = useState<GoalsMonth | null>(null);
-  const key = monthKey(at);
-  const loader = useRef(load); useEffect(() => { loader.current = load; });
-  const [failed, setFailed] = useState(false);
-  useEffect(() => { let alive = true; setData(null); setFailed(false); void loader.current(key, localDay()).then(d => { if (alive) setData(d); }).catch(() => { if (alive) setFailed(true); }); return () => { alive = false; }; }, [key]);
-  const shade = (p: number | null | undefined) => p == null ? { background: 'transparent', color: 'var(--quiet)' } : p >= 100 ? { background: 'var(--lav)', color: 'var(--lav-ink)' } : p >= 67 ? { background: 'rgba(200,182,255,.55)', color: 'var(--lav-ink)' } : p >= 34 ? { background: 'rgba(200,182,255,.22)' } : { background: 'rgba(255,255,255,.06)', color: 'var(--muted)' };
-  const firstDay = new Date(at.getFullYear(), at.getMonth(), 1).getDay();
-  const days = data?.days.filter(d => !d.future && d[who] != null) || [];
-  const perfect = days.filter(d => (d[who] ?? 0) >= 100).length;
-  const avg = days.length ? Math.round(days.reduce((a, d) => a + (d[who] ?? 0), 0) / days.length) : 0;
-  return <Sheet title={`${MONTHS[at.getMonth()]} ${at.getFullYear()}`} sub="Daily scores this month" onClose={onClose}>
-    <div className="row between"><IconButton size="sm" icon="back" label="Previous month" onClick={() => setAt(new Date(at.getFullYear(), at.getMonth() - 1, 1))} />
-      {solo ? <span className="h3">Your record</span> : <Segments label="Whose record" value={who} onChange={setWho} options={[{ value: 'me', label: 'You' }, { value: 'them', label: partner }]} />}
-      <IconButton size="sm" icon="fwd" label="Next month" disabled={key >= monthKey()} onClick={() => setAt(new Date(at.getFullYear(), at.getMonth() + 1, 1))} /></div>
-    {!data ? (failed ? <Notice tone="error">Couldn’t load this month. Close and try again.</Notice> : <Skeleton h={260} />) : <>
-      <div className="row gap-24"><div><p className="title">{avg}%</p><p className="tiny muted">Average</p></div><div><p className="title">{perfect}</p><p className="tiny muted">Perfect days</p></div></div>
-      <div className="cal">{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((l, i) => <div key={'h' + i} className="tiny muted">{l}</div>)}{Array.from({ length: firstDay }, (_, i) => <div key={'e' + i} />)}
-        {data.days.map(d => <div key={d.d} style={d.future ? { color: 'var(--quiet)' } : shade(d[who])}>{d.d}</div>)}</div>
-      <div className="col gap-8">{data.rates.filter(r => r.w === who).map(r => <div key={r.name} className="row gap-8"><span className="small grow ellipsis">{r.name}</span><div className="bar" style={{ maxWidth: 120 }}><i style={{ width: `${r.pct}%`, background: who === 'me' ? 'var(--lav)' : 'var(--mint)' }} /></div><span className="tiny" style={{ width: 36, textAlign: 'right' }}>{r.pct}%</span></div>)}</div>
-    </>}
   </Sheet>;
 }
 
