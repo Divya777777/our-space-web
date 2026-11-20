@@ -72,7 +72,7 @@ export function PlayPanel({ code, onShare, launch }: { code: string; onShare: (t
     {hub?.turns.map(t => <div key={t.id}>{banner('#E6C994', 'pencil', `${firstName(t.fromName)} drew something for you`, `${ago(t.at)} · 60 seconds to guess once you open it`, 'Guess', () => { setTurnId(t.id); setOpen('turn'); })}</div>)}
     {(room?.members.length ?? 2) <= 2 && hub?.quiz.toCheck?.map(p => <div key={p.id}>{banner('#B6DDCF', 'heart', `${firstName(p.fromName)} answered 10 questions about you`, 'Check which ones they got right', 'Check', () => setOpen('quiz'))}</div>)}
     <p className="h3" style={{ marginTop: 4 }}>Play together</p>
-    {game('pencil', '#C8B6FF', 'Scribble', live ? 'One draws, the others guess — live.' : 'Draw a word and send it.', live ? 'You’re on a call · 3 rounds · 60 s each' : '60 seconds to guess once it’s opened · +2 each', () => void scribble())}
+    {game('pencil', '#C8B6FF', 'Scribble', live ? 'One draws, the others guess — live.' : 'Draw a word and send it.', live ? 'You’re on a call · 2 drawing turns each · 60 s each' : 'Guess: 4 / 3 / 2 points · drawer: 4 once', () => void scribble())}
     {game('cards', '#F2AAAA', 'Truth or Dare', 'Sweet, fun — or spicy if you all agree.', live ? 'You’re on a call · no time limit' : onCall ? 'Opens when someone joins your call' : 'Played live on a call', () => { if (live) void td(); else if (onCall) toast(`Waiting for ${partner === 'them' ? 'someone' : partner} to join the call.`); else toast('Truth or Dare is played on a call.', { action: { label: 'Call now', run: callRoom } }); })}
     {(room?.members.length ?? 2) <= 2 && game('heart', '#B6DDCF', hub?.partner ? `How well do you know ${partner}?` : 'How well do you know me?', 'Answer 10 questions about them. They check, you both see the score.', 'Anytime · about 2 minutes', () => setOpen('quiz'))}
     {hub && <div className="inset row" style={{ padding: 14 }}><span className="gold"><Icon name="trophy" size={22} /></span><div className="grow"><p className="h3">{MONTHS[Number(hub.month.slice(5, 7)) - 1]} scores</p><p className="tiny muted">Scribble and quiz points</p></div>
@@ -133,16 +133,19 @@ function LiveScribble({ api, onClose }: { api: GamesApi; onClose: () => void }) 
     <div className="inset col gap-8" style={{ padding: 28, alignItems: 'center' }}><span className="gold"><Icon name="trophy" size={40} /></span><p className="title">{Object.entries(view.pts).length ? Object.entries(view.pts).sort((a, b) => b[1] - a[1]).map(([id, v]) => `${firstName(id === myId ? space.user.name : nameFor(id))} ${v}`).join(' · ') : `${firstName(space.user.name)} ${myPts}`}</p><p className="small muted">Points are added to this month’s scores.</p></div>
     <Button onClick={() => void act({ action: 'start' })}>{drawer ? 'Play again' : 'Draw the next game'}</Button><Button variant="secondary" onClick={() => { void act({ action: 'end' }); onClose(); }}>Back to games</Button>
   </GameSheet>;
-  const solver = view.guesses.find(g => g.ok);
+  const canGuess = !view.mySolved && view.eligible !== false;
   const next = (view.phase === 'solved' || view.phase === 'timeup') && <Button size="sm" onClick={() => void act({ action: 'next' })}>{view.round >= view.rounds ? 'See results' : 'Next round'}</Button>;
   const playing = view.phase === 'drawing' || view.phase === 'guessing';
   // Hints: letters from the start of the word, the same for every guesser (servers that have them send `hints`).
   const hints = view.hints ?? 0; const hintable = typeof view.hints === 'number';
   return <GameSheet title="Scribble" sub={`Round ${view.round} of ${view.rounds} · ${drawer ? 'you draw' : `${firstName(view.drawerName)} draws`}`} onClose={leave} footer={endGame}>
+    <p className="tiny muted">Guess before 20s: +4 · before 40s: +3 · before 60s: +2. Drawer: +4 once someone guesses. Hints are free.</p>
+    {view.mySolved && playing && <Notice>You got it! +{view.myPoints} points. Let the others keep guessing.</Notice>}
+    {view.eligible === false && playing && <Notice>You’ll join the next drawing rotation.</Notice>}
     <div className="scribble">
     <div className="scribble-main">
     <div className="row between">{drawer || view.word ? <div><p className="tiny muted">{drawer ? `Your word · only you see it${hints ? ` · ${hints} letter${hints > 1 ? 's' : ''} shown as a hint` : ''}` : 'The word was'}</p><p className="title" style={{ letterSpacing: '.08em' }}>{(view.word || '').toUpperCase()}</p></div> : <div className="letters">{Array.from({ length: view.length }, (_, i) => <span key={i}>{view.hint?.[i] || ''}</span>)}</div>}
-      <div className="row gap-12">{!drawer && playing && hintable && <Button size="sm" variant="secondary" icon="bulb" title="Shows the next letter to every guesser" disabled={hints >= view.length - 1 || !view.strokes.length} onClick={() => void act({ action: 'hint' })}>Show a letter</Button>}<Countdown ms={view.msLeft} running={playing && view.strokes.length > 0} /></div></div>
+      <div className="row gap-12">{!drawer && canGuess && playing && hintable && <Button size="sm" variant="secondary" icon="bulb" title="Shows the next letter to every guesser" disabled={hints >= view.length - 1 || !view.strokes.length} onClick={() => void act({ action: 'hint' })}>Show a letter</Button>}<Countdown ms={view.msLeft} running={playing && view.strokes.length > 0} /></div></div>
     <Canvas strokes={view.strokes} color={color} size={size} onStroke={drawer && view.phase === 'drawing' ? (s, final) => { void api.scribbleAction({ action: 'stroke', stroke: s }).then(v => { if (final) setView(v); }).catch(() => {}); } : undefined} />
     {drawer && view.phase === 'drawing' && <Tools color={color} setColor={setColor} size={size} setSize={setSize} onUndo={() => void act({ action: 'undo' })} onClear={() => void act({ action: 'clear' })} />}
     </div>
@@ -155,9 +158,9 @@ function LiveScribble({ api, onClose }: { api: GamesApi; onClose: () => void }) 
     <div className="chips">{view.guesses.length ? view.guesses.map((g, i) => <span key={i} className={`tag ${g.ok ? 'mint' : 'plain'}`} style={{ height: 28, fontSize: 13 }}>{g.by === myId ? 'You' : firstName(g.name)}: {g.text}</span>) : <span className="small muted">{drawer ? 'The others see your lines live and type guesses.' : 'Type what you think it is.'}</span>}</div>
     {drawer && view.phase === 'drawing' && <div className="row gap-8"><Button variant="secondary" onClick={() => void act({ action: 'skip' })}>Skip word</Button><Button icon="check" disabled={!view.strokes.length} onClick={() => void act({ action: 'done' })}>Done drawing</Button></div>}
     {drawer && view.phase === 'guessing' && <Notice>They’re guessing. Drawing is locked until the timer ends.</Notice>}
-    {!drawer && playing && <GuessBox autoFocus onGuess={t => void act({ action: 'guess', text: t })} />}
+    {!drawer && canGuess && playing && <GuessBox autoFocus onGuess={t => void act({ action: 'guess', text: t })} />}
 
-    {view.phase === 'solved' && <div className="row inset" style={{ padding: 12 }}><span className="mint"><Icon name="check" /></span><span className="grow">{solver ? (solver.by === myId ? 'You' : firstName(solver.name)) : 'Someone'} got it — “{view.word}”. +2 each.</span>{next}</div>}
+    {view.phase === 'solved' && <div className="row inset" style={{ padding: 12 }}><span className="mint"><Icon name="check" /></span><span className="grow">Round complete — “{view.word}”. Drawer +4; guessers earn 4, 3 or 2.</span>{next}</div>}
     {view.phase === 'timeup' && <div className="row inset" style={{ padding: 12 }}><span className="rose"><Icon name="clock" /></span><span className="grow">Time’s up — it was “{view.word}”.</span>{next}</div>}
     </div>
     </div>
@@ -174,7 +177,7 @@ function DrawAndSend({ api, partner, onClose }: { api: GamesApi; partner: string
     <div className="row between"><div><p className="tiny muted">Your word · only you see it</p><p className="title" style={{ letterSpacing: '.08em' }}>{word ? word.toUpperCase() : '…'}</p></div><Button size="sm" variant="secondary" onClick={() => newWord(word || undefined)}>New word</Button></div>
     <Canvas strokes={strokes} color={color} size={size} onStroke={(s, final) => { if (final) setStrokes(l => [...l.filter(x => x.id !== s.id), s]); }} />
     <Tools color={color} setColor={setColor} size={size} setSize={setSize} onUndo={() => setStrokes(l => l.slice(0, -1))} onClear={() => setStrokes([])} />
-    <p className="tiny muted">When they open it, they have 60 seconds to guess. A right guess gives you both points.</p>
+    <p className="tiny muted">Each person gets 60 seconds from opening. Guess before 20s: +4, before 40s: +3, before 60s: +2. You earn +4 once someone guesses.</p>
   </Sheet>;
 }
 function GuessTurn({ api, id, onClose, onDraw }: { api: GamesApi; id: string; onClose: () => void; onDraw: () => void }) {
@@ -190,9 +193,9 @@ function GuessTurn({ api, id, onClose, onDraw }: { api: GamesApi; id: string; on
     <Canvas strokes={turn.strokes} />
     <div className="letters" style={{ justifyContent: 'center' }}>{Array.from({ length: turn.length }, (_, i) => <span key={i}>{turn.word[i] || ''}</span>)}</div>
     {turn.tries.length > 0 && <div className="chips">{turn.tries.map((t, i) => <span key={i} className="tag plain" style={{ textDecoration: 'line-through' }}>{t}</span>)}</div>}
-    {turn.solved ? <><Notice icon="check">Yes — it’s “{turn.word}”!</Notice><Button onClick={onDraw}>Your turn to draw</Button></>
+    {turn.solved ? <><Notice icon="check">Yes — it’s “{turn.word}”! {turn.points ? `+${turn.points} points.` : ""}</Notice><Button onClick={onDraw}>Your turn to draw</Button></>
       : over ? <><Notice icon="clock">Time’s up{turn.word.length === turn.length ? ` — it was “${turn.word}”` : ''}.</Notice><Button onClick={onDraw}>Your turn to draw</Button></>
-        : <><GuessBox autoFocus onGuess={t => void act({ action: 'guess', text: t })} /><div className="row between"><Button size="sm" variant="secondary" icon="bulb" disabled={turn.hints >= turn.length - 1} onClick={() => void act({ action: 'hint' })}>Show a letter</Button><span className="tiny muted">Each hint costs 1 point</span></div></>}
+        : <><GuessBox autoFocus onGuess={t => void act({ action: 'guess', text: t })} /><div className="row between"><Button size="sm" variant="secondary" icon="bulb" disabled={turn.hints >= turn.length - 1} onClick={() => void act({ action: 'hint' })}>Show a letter</Button></div><p className="tiny muted">Before 20s: +4 · before 40s: +3 · before 60s: +2. Hints are free.</p></>}
   </Sheet>;
 }
 function TruthDare({ api, onClose }: { api: GamesApi; onClose: () => void }) {

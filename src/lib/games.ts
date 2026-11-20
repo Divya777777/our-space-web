@@ -1,12 +1,12 @@
 // Play tab: types, the server API, and a sample version for the demo space (Leo plays along).
 export type Stroke = { id: string; c: string; s: number; p: [number, number][] };
 export type ScribbleView = {
-  version: number; drawer: string; drawerName: string; round: number; rounds: number; phase: 'drawing' | 'guessing' | 'solved' | 'timeup' | 'over';
+  mySolved?: boolean; myPoints?: number; eligible?: boolean; version: number; drawer: string; drawerName: string; round: number; rounds: number; phase: 'drawing' | 'guessing' | 'solved' | 'timeup' | 'over';
   word: string | null; length: number; msLeft: number; strokes: Stroke[]; guesses: { by: string; name: string; text: string; ok: boolean }[]; pts: Record<string, number>; solvedBy: string | null;
   /** Newer servers: letters shown as hints (from the start of the word), for everyone. */ hints?: number; hint?: string;
   /** Newer servers: everyone in this game (scoreboard). */ players?: { id: string; name: string; pts: number; here: boolean }[];
 };
-export type Turn = { id: string; from: string; fromName: string; at: number; strokes: Stroke[]; length: number; hints: number; tries: string[]; solved: boolean; word: string; expired?: boolean; msLeft?: number; started?: boolean };
+export type Turn = { points?: number; id: string; from: string; fromName: string; at: number; strokes: Stroke[]; length: number; hints: number; tries: string[]; solved: boolean; word: string; expired?: boolean; msLeft?: number; started?: boolean };
 export type TdView = { version: number; decks: { sweet: boolean; fun: boolean; spicy: boolean }; spicyAsked: string[]; spicyOn: boolean; turn: string; turnName: string; card: { kind: 'truth' | 'dare'; deck: string; text: string; /** Who asks ("me" in the card means them). */ asker?: string; askerName?: string } | null; swaps: Record<string, number>; need: number; players?: { id: string; name: string; here: boolean }[] };
 export type QuizQuestion = { id?: number; q: string; you?: string; opts: string[] };
 export type QuizState = { questions: QuizQuestion[]; ids?: number[]; answered: boolean; myAnswers: number[] | null; people: { id: string; name: string; ready: boolean; guessed: boolean; score: number | null; answers: number[] | null; guesses: number[] | null; questions?: QuizQuestion[] | null }[] };
