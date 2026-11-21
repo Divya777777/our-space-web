@@ -16,3 +16,12 @@
   .screen-share-copy strong { font-size: 15px; }
 }
 @media (prefers-reduced-motion: reduce) { .screen-share-option { transition: none; } }
+
+/* Two clear choices side by side (stacked on narrow screens). */
+.screen-share-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.screen-share-option { flex-direction: column; align-items: flex-start; gap: 12px; padding: 18px; height: 100%; }
+.screen-share-option > svg { display: none; }
+.screen-share-copy { gap: 4px; }
+.screen-share-help { grid-column: 1 / -1; text-align: center; }
+.screen-share-option:focus:not(:focus-visible) { outline: none; }
+@media (max-width: 520px) { .screen-share-options { grid-template-columns: 1fr; } .screen-share-option { flex-direction: row; align-items: center; } }

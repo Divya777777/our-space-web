@@ -41,8 +41,8 @@ export function PeoplePanel({ room }: { room: Room }) {
       {room.members.map(m => {
         const me = m.id === space.user.id; const isBlocked = isBlockedId(blocked, m.id);
         return <div key={m.id} className="list-row" style={{ padding: '10px 8px' }}>
-          <Avatar name={m.name} size={40} />
-          <div className="grow"><p className="h3 ellipsis">{m.name}{me && <span className="muted" style={{ fontWeight: 400 }}> (you)</span>}</p><p className="tiny muted">{m.id === room.hostId ? 'Admin' : isBlocked ? 'Blocked' : 'Member'}</p></div>
+          <span className="presence-av"><Avatar name={m.name} size={40} />{!me && room.online?.includes(m.id) && <i className="online-dot" title="Online" />}</span>
+          <div className="grow"><p className="h3 ellipsis">{m.name}{me && <span className="muted" style={{ fontWeight: 400 }}> (you)</span>}</p><p className="tiny muted">{m.id === room.hostId ? 'Admin' : isBlocked ? 'Blocked' : 'Member'}{!me && !isBlocked && (room.online?.includes(m.id) ? <span style={{ color: 'var(--mint)' }}> · Online</span> : '')}</p></div>
           {!me && !call.activeCode && !isBlocked && <>
             <IconButton size="sm" variant="plain" icon="phone" label={`Voice call ${m.name}`} onClick={() => call.start(room.code, [m], false, m.name)} />
             <IconButton size="sm" variant="plain" icon="video" label={`Video call ${m.name}`} onClick={() => call.start(room.code, [m], true, m.name)} />

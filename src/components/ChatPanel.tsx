@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Receipts, Room } from '../lib/model';
 import { useSpace } from '../lib/space';
 import { useRoomChat } from '../lib/useRoomChat';
@@ -6,7 +7,7 @@ import { ChatItem, fileUrl } from '../lib/chatStore';
 import { isBlockedId, useBlocked } from '../lib/safety';
 import { Icon } from './Icon';
 import { LinkSheet } from './LinkSheet';
-import { IconButton, Notice, firstName, useConfirm, useToast } from './ui';
+import { Avatar, IconButton, Notice, firstName, useConfirm, useToast } from './ui';
 
 const time = (t: number) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const dayLabel = (t: number) => { const d = new Date(t); const today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1); return d.toDateString() === today.toDateString() ? 'Today' : d.toDateString() === y.toDateString() ? 'Yesterday' : d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }); };
@@ -27,6 +28,11 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
   const confirm = useConfirm();
   const blocked = useBlocked(space.api);
   const [text, setText] = useState('');
+  const [replyTo, setReplyTo] = useState<ChatItem | null>(null);
+  const [editing, setEditing] = useState<ChatItem | null>(null);
+  const [viewer, setViewer] = useState<{ url: string; name: string } | null>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const focusBox = () => setTimeout(() => box.current?.focus(), 0);
   const [progress, setProgress] = useState<string>('');
   const [linking, setLinking] = useState(false);
   const [hideLink, setHideLink] = useState(() => { try { return localStorage.getItem('ourspace.hideLinkCta') === '1'; } catch { return false; } });
@@ -64,15 +70,62 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
   };
   const unstage = (id: string) => setStaged(list => { const gone = list.find(x => x.id === id); if (gone?.url) URL.revokeObjectURL(gone.url); return list.filter(x => x.id !== id); });
   const stagedRef = useRef(staged); stagedRef.current = staged;
-  useEffect(() => { const box = end.current?.closest('.side-body'); if (box && box.scrollHeight > box.clientHeight + 1) box.scrollTop = box.scrollHeight; }, [items.length, staged.length]);
+  // Like WhatsApp: new messages scroll into view only while you're at the bottom (or when you sent them).
+  // Scrolled up, a round button with the count of new ones takes you straight down.
+  const scroller = useCallback(() => end.current?.closest('.side-body') as HTMLElement | null, []);
+  const [away, setAway] = useState(false);
+  const [fresh, setFresh] = useState(0);
+  const awayRef = useRef(false);
+  useEffect(() => {
+    const el = scroller(); if (!el) return;
+    const on = () => { const a = el.scrollHeight - el.scrollTop - el.clientHeight > 160; if (a !== awayRef.current) { awayRef.current = a; setAway(a); } if (!a) setFresh(0); };
+    on(); el.addEventListener('scroll', on, { passive: true });
+    return () => el.removeEventListener('scroll', on);
+  }, [scroller, chat.loaded]);
+  const jumpDown = (smooth = true) => { const el = scroller(); if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); setFresh(0); };
+  const seenCount = useRef(0);
+  useEffect(() => {
+    const added = items.length - seenCount.current; seenCount.current = items.length;
+    const last = items[items.length - 1];
+    if (awayRef.current && added > 0 && last && last.from !== space.user.id) { setFresh(n => n + added); return; }
+    const el = scroller(); if (el && el.scrollHeight > el.clientHeight + 1) el.scrollTop = el.scrollHeight;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length, staged.length]);
   useEffect(() => () => { stagedRef.current.forEach(x => x.url && URL.revokeObjectURL(x.url)); }, []);
   const send = async () => {
     const t = text; const files = staged;
     if (!t.trim() && !files.length) return;
     setText('');
     if (files.length) { setStaged([]); await attach(files.map(x => x.file)); files.forEach(x => x.url && URL.revokeObjectURL(x.url)); }
-    if (t.trim()) { try { await chat.sendText(t, pmTo); } catch (e) { toast((e as Error).message || 'Message not sent.', { tone: 'error' }); } }
+    const re = replyTo ? { id: replyTo.id, name: firstName(replyTo.name), text: (replyTo.text || (replyTo.kind === 'image' ? 'Photo' : replyTo.file?.name || 'File')).slice(0, 140) } : undefined;
+    setReplyTo(null);
+    if (t.trim()) { try { await chat.sendText(t, pmTo, re); } catch (e) { toast((e as Error).message || 'Message not sent.', { tone: 'error' }); } }
+    jumpDown(false);
   };
+  const saveEdit = async () => {
+    const item = editing; const t = text.trim(); if (!item) return;
+    setEditing(null); setText('');
+    if (!t || t === item.text) return;
+    try { await chat.editMessage(item, t); } catch (e) { toast((e as Error).message || 'Couldn’t edit that message.', { tone: 'error' }); }
+  };
+  const startEdit = (item: ChatItem) => { setReplyTo(null); setEditing(item); setText(item.text || ''); focusBox(); };
+  const startReply = (item: ChatItem) => { setEditing(null); setReplyTo(item); focusBox(); };
+  const goTo = (id: string) => {
+    const el = scroller()?.querySelector<HTMLElement>(`[data-msg="${CSS.escape(id)}"]`);
+    if (!el) { toast('That message isn’t here any more.', { tone: 'info' }); return; }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  };
+  const react = (item: ChatItem, emoji: string) => { void chat.react(item, item.reactions?.[space.user.id] === emoji ? '' : emoji).catch(e => toast((e as Error).message || 'Couldn’t react.', { tone: 'error' })); };
+  const deleteAll = async (item: ChatItem) => {
+    if (!await confirm({ title: 'Delete for everyone?', body: 'It’s removed from this chat for everyone in the room.', confirmLabel: 'Delete for everyone', danger: true })) return;
+    try { await chat.deleteForEveryone(item); } catch (e) { toast((e as Error).message || 'Couldn’t delete it.', { tone: 'error' }); }
+  };
+  const deleteMine = async (item: ChatItem) => {
+    if (await confirm({ title: item.kind === 'image' ? 'Delete this photo for you?' : item.kind === 'file' ? 'Delete this file for you?' : 'Delete this message for you?', body: 'It’s removed from this device only. Everyone else in the room still has it.', confirmLabel: 'Delete for me', danger: true })) chat.deleteForMe(item.id);
+  };
+  // Who's around: a green dot when someone has Our Space open, "last seen" otherwise (two-person rooms, at the top).
+  const online = new Set(room.online || []);
+  const solo = others.length === 1 ? room.members.find(m => m.id === others[0]) : null;
   // One or many photos / files: each goes as its own message, in order.
   const attach = async (files: File[]) => {
     const list = files.slice(0, 20);
@@ -114,20 +167,26 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
         <span className="grow"><span className="small" style={{ fontWeight: 600, display: 'block' }}>Bring older chats from your phone</span><span className="tiny muted">Scan a QR code with Our Space on your phone</span></span>
       </button>
         <button className="link-cta-x" aria-label="Hide this (you can find it under You)" title="Hide (it stays under You)" onClick={() => { setHideLink(true); try { localStorage.setItem('ourspace.hideLinkCta', '1'); } catch { /* fine */ } }}><Icon name="x" size={14} /></button></div>}
+      {solo && <div className="chat-presence"><span className="presence-av"><Avatar name={solo.name} size={28} />{online.has(solo.id) && <i className="online-dot" />}</span><span className="small" style={{ fontWeight: 600 }}>{firstName(solo.name)}</span><span className="tiny muted">{online.has(solo.id) ? 'Online' : room.lastSeen?.[solo.id] ? `Last seen ${ago(room.lastSeen[solo.id])}` : 'Offline'}</span></div>}
       {!chat.loaded && <p className="small muted">Loading messages…</p>}
       {chat.loaded && !items.length && <div className="col gap-8" style={{ alignItems: 'center', textAlign: 'center', padding: '40px 12px' }}><Icon name="chat" size={28} /><p className="h3">Say hi</p><p className="small muted">Messages, photos and files up to 16 MB. Drop a file here to add it.</p></div>}
       {items.map(i => {
         const day = dayLabel(i.at); const showDay = day !== lastDay; lastDay = day;
         const showName = i.from !== space.user.id && (i.from !== lastFrom || showDay); lastFrom = i.from;
+        const mine = i.from === space.user.id; const sent = !i.pending && !i.failed && /^\d+$/.test(i.id);
         return <div key={i.id} style={{ display: 'contents' }}>
           {showDay && <p className="tiny quiet" style={{ textAlign: 'center', margin: '10px 0 4px' }}>{day}</p>}
-          <Message item={i} names={room.members} myId={space.user.id} onReplyPrivately={canPrivate && i.from !== space.user.id && reachable.some(m => m.id === i.from) ? () => setPrivateTo(i.from) : undefined} status={i.from === space.user.id && !i.pending && !i.failed && /^\d+$/.test(i.id) ? statusOf(Number(i.id), others, room.receipts) : null} mine={i.from === space.user.id} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)} onDelete={i.pending ? undefined : async () => { if (await confirm({ title: i.kind === 'image' ? 'Delete this photo for you?' : i.kind === 'file' ? 'Delete this file for you?' : 'Delete this message for you?', body: 'It’s removed from this device only. Everyone else in the room still has it.', confirmLabel: 'Delete for me', danger: true })) chat.deleteForMe(i.id); }} />
+          <Message item={i} names={room.members} myId={space.user.id} online={online.has(i.from)} onReplyPrivately={canPrivate && !mine && reachable.some(m => m.id === i.from) ? () => setPrivateTo(i.from) : undefined} status={mine && sent ? statusOf(Number(i.id), others, room.receipts) : null} mine={mine} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)}
+            actions={sent && !allBlocked ? { react: e => react(i, e), reply: i.deleted ? undefined : () => startReply(i), edit: mine && !i.deleted && i.kind === 'text' ? () => startEdit(i) : undefined, deleteAll: mine && !i.deleted ? () => void deleteAll(i) : undefined, deleteMine: () => void deleteMine(i), quote: goTo, photo: (url, name) => setViewer({ url, name }) } : { deleteMine: i.pending ? undefined : () => void deleteMine(i), quote: goTo, photo: (url, name) => setViewer({ url, name }) }} />
         </div>;
       })}
       <div ref={end} />
+      {away && <button className="chat-jump" onClick={() => jumpDown()} aria-label={fresh ? `${fresh} new message${fresh > 1 ? 's' : ''}. Go to the newest` : 'Go to the newest message'} title="Go to the newest">
+        <Icon name="dbldown" size={18} />{fresh > 0 && <span className="chat-jump-n">{fresh > 99 ? '99+' : fresh}</span>}</button>}
     </div>
     {chat.unreadable > 0 && <div style={{ marginTop: 10 }}><Notice icon="lock">Some messages were sent before this browser joined, or from an older phone app. <button className="lav" onClick={() => setLinking(true)}>Copy them from your phone</button></Notice></div>}
     {linking && <LinkSheet onClose={() => setLinking(false)} />}
+    {viewer && <PhotoViewer {...viewer} onClose={() => setViewer(null)} />}
     {chat.waitingForKeys.length > 0 && <div style={{ marginTop: 10 }}><Notice>{chat.waitingForKeys.map(firstName).join(', ')} will see messages once they open Our Space on an updated app.</Notice></div>}
     {allBlocked ? <div style={{ marginTop: 12 }}><Notice icon="lock">You blocked {others.length > 1 ? 'everyone else here' : firstName(room.members.find(m => m.id === others[0])?.name || 'them')}. Messages and calls are off; songs and the room still work. Unblock under People to chat again.</Notice></div> : <>
     {staged.length > 0 && <div className="staged" aria-label="Ready to send">
@@ -146,13 +205,19 @@ export function ChatPanel({ room, chat, onReport }: { room: Room; chat: Chat; on
       </select>
       {privateTo && <span className="tiny">Only {privateName} will see it</span>}
     </div>}
+    {(replyTo || editing) && <div className="compose-ctx">
+      <Icon name={editing ? 'pencil' : 'reply'} size={15} />
+      <div className="grow" style={{ minWidth: 0 }}><span className="tiny" style={{ fontWeight: 600, color: 'var(--lav)' }}>{editing ? 'Editing message' : `Replying to ${replyTo!.from === space.user.id ? 'yourself' : firstName(replyTo!.name)}`}</span>
+        <span className="tiny muted ellipsis" style={{ display: 'block' }}>{(editing || replyTo)!.text || ((editing || replyTo)!.kind === 'image' ? 'Photo' : (editing || replyTo)!.file?.name)}</span></div>
+      <button className="compose-ctx-x" aria-label="Cancel" onClick={() => { if (editing) setText(''); setEditing(null); setReplyTo(null); }}><Icon name="x" size={14} /></button>
+    </div>}
     <div className="composer" style={{ marginTop: canPrivate ? 8 : 12 }}>
        <input ref={fileInput} type="file" multiple hidden onChange={e => { const f = Array.from(e.target.files || []); e.target.value = ''; if (f.length) stage(f); }} />
       <IconButton icon="paperclip" label="Send photos or files (pick several at once)" onClick={() => fileInput.current?.click()} disabled={!!progress} />
-      <textarea aria-label={`Message ${room.name}`} className="input" placeholder={progress || (staged.length ? 'Add a message (optional)' : privateTo ? `Private message to ${privateName}` : 'Message')} value={text} rows={1}
+      <textarea ref={box} aria-label={`Message ${room.name}`} className="input" placeholder={progress || (staged.length ? 'Add a message (optional)' : privateTo ? `Private message to ${privateName}` : 'Message')} value={text} rows={1}
         onChange={e => { setText(e.target.value); e.target.style.height = '44px'; e.target.style.height = Math.min(140, e.target.scrollHeight) + 'px'; }}
-        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} onPaste={onPaste} />
-      <IconButton icon="send" variant="accent" label="Send message" onClick={() => void send()} disabled={(!text.trim() && !staged.length) || !!progress} />
+        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void (editing ? saveEdit() : send()); } else if (e.key === 'Escape' && (editing || replyTo)) { e.preventDefault(); if (editing) setText(''); setEditing(null); setReplyTo(null); } }} onPaste={onPaste} />
+      <IconButton icon={editing ? 'check' : 'send'} variant="accent" label={editing ? 'Save the edit' : 'Send message'} onClick={() => void (editing ? saveEdit() : send())} disabled={(!text.trim() && !staged.length) || !!progress} />
     </div></>}
   </div>;
 }
@@ -164,17 +229,85 @@ function photoSize(w?: number, h?: number): React.CSSProperties | undefined {
   const k = Math.min(260 / w, 260 / h, 1);
   return { width: Math.round(w * k), height: Math.round(h * k) };
 }
-function Message({ item, status, mine, showName, onReport, onDismiss, onDelete, names, myId, onReplyPrivately }: { item: ChatItem; status: Status | null; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void; onDelete?: () => void; names: { id: string; name: string }[]; myId: string; onReplyPrivately?: () => void }) {
+const QUICK = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
+const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60000); if (m < 1) return 'just now'; if (m < 60) return `${m} min ago`; const h = Math.round(m / 60); if (h < 24) return `${h} h ago`; return new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' }); };
+type Actions = { react?: (emoji: string) => void; reply?: () => void; edit?: () => void; deleteAll?: () => void; deleteMine?: () => void; quote: (id: string) => void; photo: (url: string, name: string) => void };
+function Message({ item, status, mine, showName, onReport, onDismiss, names, myId, onReplyPrivately, online, actions }: { item: ChatItem; status: Status | null; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void; names: { id: string; name: string }[]; myId: string; onReplyPrivately?: () => void; online?: boolean; actions: Actions }) {
   const [url, setUrl] = useState('');
+  const [menu, setMenu] = useState(false);
+  const [open, setOpen] = useState(false); // touch: long-press shows the bar
+  const [dx, setDx] = useState(0);
+  const touch = useRef<{ x: number; y: number; t: ReturnType<typeof setTimeout>; swiping: boolean } | null>(null);
+  const self = useRef<HTMLDivElement>(null);
   useEffect(() => { if (item.file) void fileUrl(item.file.key).then(setUrl); }, [item.file]);
+  useEffect(() => {
+    if (!menu && !open) return;
+    const away = (e: PointerEvent) => { if (!self.current?.contains(e.target as Node)) { setMenu(false); setOpen(false); } };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setMenu(false); setOpen(false); } };
+    document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
+  }, [menu, open]);
   const privateLabel = item.to?.length ? (mine ? `Private to ${item.to.map(id => firstName(names.find(m => m.id === id)?.name || 'them')).join(', ')}` : item.to.includes(myId) ? 'Private · only you' : 'Private') : '';
-  return <div className={`msg ${mine ? 'me' : ''} ${item.to?.length ? 'private' : ''} ${item.pending ? 'pending' : ''} ${item.failed ? 'failed' : ''}`} onContextMenu={e => { if (!mine) { e.preventDefault(); onReport(); } }}>
-    {(showName || privateLabel) && <span className="who">{showName && firstName(item.name)}{privateLabel && <span className="pm-tag"><Icon name="lock" size={11} />{privateLabel}</span>}</span>}
-    {item.kind === 'image' && item.file ? (url ? <div className="msg-photo"><a href={url} target="_blank" rel="noreferrer"><img src={url} alt={item.file.name} style={photoSize(item.file.w, item.file.h)} /></a>
+  const nameOf = (id: string) => id === myId ? 'You' : firstName(names.find(m => m.id === id)?.name || 'Someone');
+  // Reactions grouped by emoji, like Instagram: 😂 2
+  const groups = Object.entries(item.reactions || {}).reduce<Record<string, string[]>>((g, [who, e]) => { (g[e] ||= []).push(who); return g; }, {});
+  const mineEmoji = item.reactions?.[myId];
+  const hasBar = !!(actions.react || actions.reply || actions.edit || actions.deleteAll || actions.deleteMine);
+  // Swipe right (left on your own) to reply, like WhatsApp. Hold to open the reactions.
+  const onTouchStart = (e: React.TouchEvent) => { const t = e.touches[0]; touch.current = { x: t.clientX, y: t.clientY, swiping: false, t: setTimeout(() => { if (hasBar) setOpen(true); }, 450) }; };
+  const onTouchMove = (e: React.TouchEvent) => {
+    const s = touch.current; if (!s) return; const t = e.touches[0]; const x = t.clientX - s.x, y = t.clientY - s.y;
+    if (Math.abs(x) > 8 || Math.abs(y) > 8) clearTimeout(s.t);
+    if (!actions.reply) return;
+    if (!s.swiping && Math.abs(x) > 12 && Math.abs(x) > Math.abs(y) * 1.5) s.swiping = true;
+    if (s.swiping) setDx(Math.max(0, Math.min(80, mine ? -x : x)));
+  };
+  const onTouchEnd = () => { const s = touch.current; if (s) clearTimeout(s.t); if (dx > 56) actions.reply?.(); setDx(0); touch.current = null; };
+  const body = item.deleted
+    ? <div className="bubble deleted"><Icon name="x" size={13} />{mine ? 'You deleted this message' : 'This message was deleted'}</div>
+    : item.kind === 'image' && item.file ? (url ? <div className="msg-photo"><button className="msg-photo-open" onClick={() => actions.photo(url, item.file!.name || 'photo.jpg')} aria-label="Open photo"><img src={url} alt={item.file.name} style={photoSize(item.file.w, item.file.h)} /></button>
       <a className="msg-save" href={url} download={item.file.name || 'photo.jpg'} aria-label={`Save ${item.file.name || 'photo'}`} title="Save to this computer"><Icon name="download" size={16} /></a></div> : <div className="skeleton" style={{ width: 220, height: 160 }} />)
       : item.kind === 'file' && item.file ? <a className="bubble row gap-8" href={url || undefined} download={item.file.name} style={{ color: 'inherit' }}><Icon name="file" size={18} /><span className="ellipsis" style={{ maxWidth: 200 }}>{item.file.name}</span><span className="tiny" style={{ opacity: .7 }}>{(item.file.size / 1e6).toFixed(1)} MB</span><span className="file-save"><Icon name="download" size={14} />Save</span></a>
-        : <div className="bubble">{item.text}</div>}
-    {onReplyPrivately && <button className="pm-reply tiny" onClick={onReplyPrivately}>Reply privately</button>}
-    <span className="tiny quiet" style={{ padding: '0 6px' }}>{item.failed ? <button className="rose" onClick={onDismiss}>Not sent · remove</button> : item.pending ? 'Sending…' : <span className="row" style={{ gap: 3, display: 'inline-flex', alignItems: 'center' }}>{time(item.at)}{status && <span title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} style={{ display: 'inline-flex', color: status === 'read' ? '#8EC5FF' : undefined }}><Icon name={status === 'sent' ? 'check' : 'checks'} size={14} stroke={2} /></span>}{onDelete && <button className="msg-del" onClick={onDelete} aria-label="Delete for me" title="Delete for me"><Icon name="trash" size={13} /></button>}</span>}</span>
+        : <div className="bubble">{item.text}</div>;
+  return <div ref={self} data-msg={item.id} className={`msg ${mine ? 'me' : ''} ${item.to?.length ? 'private' : ''} ${item.pending ? 'pending' : ''} ${item.failed ? 'failed' : ''} ${open || menu ? 'open' : ''}`}
+    onContextMenu={e => { if (!mine && !item.deleted) { e.preventDefault(); onReport(); } }} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
+    {(showName || privateLabel) && <span className="who">{showName && <>{online && <i className="online-dot inline" title="Online" />}{firstName(item.name)}</>}{privateLabel && <span className="pm-tag"><Icon name="lock" size={11} />{privateLabel}</span>}</span>}
+    <div className="msg-main" style={dx ? { transform: `translateX(${mine ? -dx : dx}px)` } : undefined}>
+      {dx > 0 && <span className="swipe-reply" style={{ opacity: Math.min(1, dx / 56) }}><Icon name="reply" size={16} /></span>}
+      {item.re && !item.deleted && <button className="msg-quote" onClick={() => actions.quote(item.re!.id)}><b>{item.re.name}</b><span>{item.re.text}</span></button>}
+      {body}
+      {hasBar && <div className="msg-bar" role="toolbar" aria-label="Message actions">
+        {actions.react && !item.deleted && QUICK.map(e => <button key={e} className={`msg-emoji ${mineEmoji === e ? 'on' : ''}`} onClick={() => { actions.react!(e); setOpen(false); }} aria-label={`React ${e}`}>{e}</button>)}
+        {actions.reply && <button className="msg-act" onClick={() => { actions.reply!(); setOpen(false); }} aria-label="Reply" title="Reply"><Icon name="reply" size={15} /></button>}
+        {(actions.edit || actions.deleteAll || actions.deleteMine) && <button className="msg-act" onClick={() => setMenu(m => !m)} aria-label="More" aria-expanded={menu} title="More"><Icon name="dots" size={16} /></button>}
+        {menu && <div className="msg-menu" role="menu">
+          {actions.edit && <button role="menuitem" onClick={() => { setMenu(false); setOpen(false); actions.edit!(); }}><Icon name="pencil" size={14} />Edit</button>}
+          {actions.deleteAll && <button role="menuitem" className="danger" onClick={() => { setMenu(false); setOpen(false); actions.deleteAll!(); }}><Icon name="trash" size={14} />Delete for everyone</button>}
+          {actions.deleteMine && <button role="menuitem" className="danger" onClick={() => { setMenu(false); setOpen(false); actions.deleteMine!(); }}><Icon name="trash" size={14} />Delete for me</button>}
+          {!mine && !item.deleted && <button role="menuitem" onClick={() => { setMenu(false); onReport(); }}><Icon name="flag" size={14} />Report</button>}
+        </div>}
+      </div>}
+    </div>
+    {Object.keys(groups).length > 0 && <div className="msg-reacts">{Object.entries(groups).map(([e, who]) => <button key={e} className={who.includes(myId) ? 'on' : ''} title={who.map(nameOf).join(', ')} onClick={() => actions.react?.(e)}>{e}{who.length > 1 && <span>{who.length}</span>}</button>)}</div>}
+    {onReplyPrivately && !item.deleted && <button className="pm-reply tiny" onClick={onReplyPrivately}>Reply privately</button>}
+    <span className="tiny quiet" style={{ padding: '0 6px' }}>{item.failed ? <button className="rose" onClick={onDismiss}>Not sent · remove</button> : item.pending ? 'Sending…' : <span className="row" style={{ gap: 3, display: 'inline-flex', alignItems: 'center' }}>{item.edited && !item.deleted && <span className="msg-edited">Edited ·</span>}{time(item.at)}{status && !item.deleted && <span title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} style={{ display: 'inline-flex', color: status === 'read' ? '#8EC5FF' : undefined }}><Icon name={status === 'sent' ? 'check' : 'checks'} size={14} stroke={2} /></span>}</span>}</span>
   </div>;
+}
+
+/** A photo opened on top of the page (not a new tab): Esc, the X or a click outside closes it; Save downloads it. */
+function PhotoViewer({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    window.addEventListener('keydown', key, true);
+    const prev = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', key, true); document.body.style.overflow = prev; };
+  }, [onClose]);
+  return createPortal(<div className="photo-view" role="dialog" aria-label={name} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="photo-view-top">
+      <span className="small ellipsis" style={{ minWidth: 0 }}>{name}</span>
+      <a className="photo-view-btn" href={url} download={name} title="Download"><Icon name="download" size={18} /><span>Download</span></a>
+      <button className="photo-view-btn round" onClick={onClose} aria-label="Close (Esc)" title="Close (Esc)"><Icon name="x" size={20} /></button>
+    </div>
+    <img src={url} alt={name} onMouseDown={e => e.stopPropagation()} />
+  </div>, document.body);
 }

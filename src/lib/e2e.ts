@@ -29,7 +29,9 @@ export function forgetIdentity(userId: string) {
   try { localStorage.removeItem(`ourspace.e2e.identity.${safe(userId)}`); localStorage.removeItem(`ourspace.e2e.device.${safe(userId)}`); } catch { /* ignore */ }
 }
 
-export type ChatMeta = { t: 'text' | 'image' | 'file' | 'part'; /** Private message: the user ids it was sent to. */ pm?: string[]; text?: string; name?: string; mime?: string; size?: number; w?: number; h?: number; at: number; z?: number; fid?: string; i?: number; parts?: number };
+export type ChatMeta = { t: 'text' | 'image' | 'file' | 'part'; /** Private message: the user ids it was sent to. */ pm?: string[]; text?: string; name?: string; mime?: string; size?: number; w?: number; h?: number; at: number; z?: number; fid?: string; i?: number; parts?: number;
+  /** A change to an earlier message (sent as t: 'part' so older apps quietly skip it). */ op?: 'edit' | 'del' | 'react'; ref?: string; emoji?: string;
+  /** The message this one replies to. */ re?: { id: string; name: string; text: string } };
 export type Sealed = { nonce: string; box: string; keys: Record<string, { n: string; b: string }>; sd?: string };
 
 export function pack(meta: ChatMeta, data?: Uint8Array) {

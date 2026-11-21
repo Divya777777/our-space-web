@@ -106,13 +106,14 @@ export function useRoomChat(room: Room | undefined) {
           if (loadedScope.current !== `${userId}/${code}`) return;
           const pageParts = { ...(ref.current.parts || {}) };
           const acknowledged: number[] = []; const cleanup: string[] = [];
-          const added: ChatItem[] = []; let skipped = 0;
+          const added: ChatItem[] = []; let skipped = 0; const ops: Op[] = [];
           for (const m of page.messages) {
             if (ref.current.items.some(i => i.id === String(m.id))) { acknowledged.push(m.id); continue; }
             const sender = roomRef.current?.members.find(p => p.id === m.from);
             const plain = open(m.payload, m.from, sender, userId, me.current!);
             if (!plain) { if (m.payload.keys && !m.payload.keys[`${userId}:${me.current!.deviceId}`]) skipped++; continue; }
             const { meta, data } = unpack(plain);
+            if (meta.op) { if (meta.ref) ops.push({ op: meta.op, ref: String(meta.ref), from: m.from, text: meta.text, emoji: meta.emoji }); acknowledged.push(m.id); continue; }
             if (meta.t === 'part') {
               if (m.from === userId && m.payload.sd === me.current!.deviceId) continue;
               const fid = String(meta.fid || ''); if (!fid || typeof meta.i !== 'number') continue;
@@ -121,7 +122,7 @@ export function useRoomChat(room: Room | undefined) {
               const keys = [...entry.keys]; keys[meta.i] = key; parts[fid] = { keys, at: entry.at };
               acknowledged.push(m.id); continue;
             }
-            const item: ChatItem = { id: String(m.id), from: m.from, name: m.name || sender?.name || '', at: meta.at || m.at, kind: meta.t, text: meta.text, ...(Array.isArray(meta.pm) && meta.pm.length ? { to: meta.pm.map(String) } : {}) };
+            const item: ChatItem = { id: String(m.id), from: m.from, name: m.name || sender?.name || '', at: meta.at || m.at, kind: meta.t, text: meta.text, ...(Array.isArray(meta.pm) && meta.pm.length ? { to: meta.pm.map(String) } : {}), ...(meta.re?.id ? { re: { id: String(meta.re.id), name: String(meta.re.name || ''), text: String(meta.re.text || '').slice(0, 140) } } : {}) };
             if (meta.t !== 'text') {
               let body: Uint8Array = data;
               if (meta.fid && meta.parts) {
@@ -142,7 +143,7 @@ export function useRoomChat(room: Room | undefined) {
           if (loadedScope.current !== `${userId}/${code}`) return;
           const cursor = page.cursor ?? (page.messages.length ? page.messages[page.messages.length - 1].id : ref.current.cursor);
           const hidden = new Set(ref.current.hidden || []);
-          commit({ ...ref.current, parts: pageParts, acks: [...new Set([...(ref.current.acks || []), ...acknowledged])], cursor: Math.max(cursor, ref.current.cursor), items: [...ref.current.items, ...added.filter(i => !hidden.has(i.id))].sort((a, b) => a.at - b.at) });
+          commit({ ...ref.current, parts: pageParts, acks: [...new Set([...(ref.current.acks || []), ...acknowledged])], cursor: Math.max(cursor, ref.current.cursor), items: applyOps([...ref.current.items, ...added.filter(i => !hidden.has(i.id))].sort((a, b) => a.at - b.at), ops) });
           clearTimeout(saveTimer.current);
           await saveChat(userId, code, ref.current);
           await Promise.all(cleanup.map(removeFile));
@@ -158,7 +159,7 @@ export function useRoomChat(room: Room | undefined) {
 
   async function deliver(meta: ChatMeta, data: Uint8Array | undefined, file?: ChatFile, onProgress?: (done: number, total: number) => void) {
     if (loadedScope.current !== `${userId}/${code}`) throw new Error('Chat is still loading. Please try again.');
-    const local: ChatItem = { id: `local-${meta.at}`, from: userId, name: space.user.name, at: meta.at, kind: meta.t as ChatItem['kind'], text: meta.text, file, pending: true, ...(meta.pm ? { to: meta.pm } : {}) };
+    const local: ChatItem = { id: `local-${meta.at}`, from: userId, name: space.user.name, at: meta.at, kind: meta.t as ChatItem['kind'], text: meta.text, file, pending: true, ...(meta.pm ? { to: meta.pm } : {}), ...(meta.re ? { re: meta.re } : {}) };
     commit({ ...ref.current, items: [...ref.current.items, local] });
     try {
       clearTimeout(saveTimer.current);
@@ -187,7 +188,22 @@ export function useRoomChat(room: Room | undefined) {
     }
   }
   /** `to`: send privately to these people only (group rooms). */
-  async function sendText(text: string, to?: string[]) { const t = text.trim(); if (t) await deliver({ t: 'text', text: t, at: Date.now(), ...(to?.length ? { pm: to } : {}) }, undefined); }
+  async function sendText(text: string, to?: string[], re?: ChatItem['re']) { const t = text.trim(); if (t) await deliver({ t: 'text', text: t, at: Date.now(), ...(to?.length ? { pm: to } : {}), ...(re ? { re } : {}) }, undefined); }
+  /** Edit, delete for everyone, or react: applied here at once, then sealed for the same people as the message. */
+  async function change(op: Op['op'], target: ChatItem, extra: { text?: string; emoji?: string } = {}) {
+    if (!/^\d+$/.test(target.id)) throw new Error('Wait until it has sent.');
+    commit({ ...ref.current, items: applyOps(ref.current.items, [{ op, ref: target.id, from: userId, ...extra }]) });
+    if (op === 'del' && target.file?.key) void removeFile(target.file.key);
+    const id = me.current || (me.current = loadIdentity(userId));
+    const pm = target.to;
+    const to = recipientsFor(roomRef.current?.members || [], id, userId).filter(r => !pm?.length || r.id.split(':')[0] === userId || r.id.split(':')[0] === target.from || pm.includes(r.id.split(':')[0]));
+    const priv = pm?.length ? { to: [...new Set([...pm, target.from])].filter(u => u !== userId).map(Number) } : {};
+    await space.api(`/rooms/${code}/e2e`, { ...seal(pack({ t: 'part', op, ref: target.id, at: Date.now(), ...extra }), to, id), localSaved: true, hint: 'part', ...priv }, 'POST');
+  }
+  const editMessage = (item: ChatItem, text: string) => change('edit', item, { text: text.trim() });
+  const deleteForEveryone = (item: ChatItem) => change('del', item);
+  /** '' removes your reaction. */
+  const react = (item: ChatItem, emoji: string) => change('react', item, { emoji });
   async function sendFile(file: File, onProgress?: (done: number, total: number) => void, to?: string[]) {
     const image = /^image\/(jpeg|png|webp|gif)$/.test(file.type);
     let blob: Blob = file; let w: number | undefined; let h: number | undefined; let mime = file.type || 'application/octet-stream'; let name = file.name;
@@ -208,7 +224,23 @@ export function useRoomChat(room: Room | undefined) {
     commit({ ...ref.current, hidden: [...(ref.current.hidden || []), id].slice(-2000), items: ref.current.items.filter(i => i.id !== id) });
   }
   useEffect(() => { if (loaded) tell('d'); }, [loaded, tell]);
-  return { items: state.items, cursor: state.cursor, loaded, sendText, sendFile, waitingForKeys, dismiss, deleteForMe, unreadable, markRead };
+  return { editMessage, deleteForEveryone, react, items: state.items, cursor: state.cursor, loaded, sendText, sendFile, waitingForKeys, dismiss, deleteForMe, unreadable, markRead };
+}
+
+type Op = { op: 'edit' | 'del' | 'react'; ref: string; from: string; text?: string; emoji?: string };
+/** Apply edits, deletes and reactions. Only the sender may edit or delete their own message. */
+function applyOps(items: ChatItem[], ops: Op[]): ChatItem[] {
+  if (!ops.length) return items;
+  return items.map(i => {
+    let next = i;
+    for (const o of ops) {
+      if (o.ref !== i.id) continue;
+      if (o.op === 'edit' && o.from === i.from && !next.deleted && o.text) next = { ...next, text: o.text.slice(0, 4000), edited: true };
+      else if (o.op === 'del' && o.from === i.from) next = { ...next, deleted: true, text: undefined, file: undefined, reactions: undefined, re: undefined };
+      else if (o.op === 'react' && !next.deleted) { const r = { ...(next.reactions || {}) }; if (o.emoji) r[o.from] = String(o.emoji).slice(0, 8); else delete r[o.from]; next = { ...next, reactions: r }; }
+    }
+    return next;
+  });
 }
 
 /** Photos are resized to 1280 px JPEG like the phone app (keeps sealed messages small). */

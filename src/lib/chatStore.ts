@@ -3,7 +3,8 @@ import { strFromU8, strToU8 } from 'fflate';
 import { localKey, openLocal, sealLocal } from './e2e';
 
 export type ChatFile = { key: string; name: string; mime: string; size: number; w?: number; h?: number };
-export type ChatItem = { id: string; from: string; name: string; at: number; kind: 'text' | 'image' | 'file'; /** Private message: who it was sent to. */ to?: string[]; text?: string; file?: ChatFile; pending?: boolean; failed?: boolean };
+export type ChatItem = { id: string; from: string; name: string; at: number; kind: 'text' | 'image' | 'file'; /** Private message: who it was sent to. */ to?: string[]; text?: string; file?: ChatFile; pending?: boolean; failed?: boolean;
+  edited?: boolean; /** Deleted for everyone by the sender. */ deleted?: boolean; /** userId -> emoji */ reactions?: Record<string, string>; re?: { id: string; name: string; text: string } };
 export type ChatState = { acks?: number[]; cursor: number; items: ChatItem[]; parts?: Record<string, { keys: string[]; at: number }>; /** Messages deleted on this device only (they stay for everyone else). */ hidden?: string[] };
 
 let dbPromise: Promise<IDBDatabase> | null = null;

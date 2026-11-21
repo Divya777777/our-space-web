@@ -99,6 +99,8 @@ async function tuneSender(sender: RTCRtpSender, others: number, screen: ShareKin
 }
 /** How long the picture is held before it is shown (ms). Voices are never held back. */
 const VIDEO_BUFFER = 80;
+/** Live call numbers for debugging (off for everyone). */
+const SHOW_STATS = false;
 function setBuffer(receiver: RTCRtpReceiver, ms: number) { try { (receiver as RTCRtpReceiver & { jitterBufferTarget?: number | null }).jitterBufferTarget = ms; } catch { /* older browsers */ } }
 /** Who is talking, worked out once for the whole call (see CallProvider) and read by every face. */
 type Voices = { speaking: ReadonlySet<string>; speaker: string | null };
@@ -641,10 +643,10 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   // The quality watch, every 2 s: a person whose picture and sound arrive badly (lost packets, jitter, freezes,
   // a slow round trip) is marked "weak connection", and their picture gets a deeper buffer while that lasts.
   const [selfWeak, setSelfWeak] = useState(false);
-  const [diagLine, setDiagLine] = useState('');
+  const [, setDiagLine] = useState('');
   const statsPrev = useRef<Map<string, { in: number; out: number; t: number }>>(new Map());
   // '' = fine, 'no-relay' = the TURN relay isn't configured (calls will drop a lot), 'direct' = relay exists but this call is peer-to-peer.
-  const [diag, setDiag] = useState('');
+  const [, setDiag] = useState('');
   useEffect(() => {
     if (phase !== 'connected') { setSelfWeak(false); setDiag(''); setDiagLine(''); statsPrev.current.clear(); return; }
     let checking = false;
@@ -688,7 +690,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
             const codec = iv && stat(iv.codecId) ? String(stat(iv.codecId)!.mimeType || '').replace('video/', '') : '';
             const dim = (o: Record<string, unknown> | null) => n2(o, 'frameWidth') ? `${n2(o, 'frameWidth')}×${n2(o, 'frameHeight')}` : '—';
             const kb = (k: number) => k >= 1000 ? `${(k / 1000).toFixed(1)}M` : `${k}k`;
-            if (prev) setDiagLine(`in ${dim(iv)} ${Math.round(n2(iv, 'framesPerSecond'))}fps ${kb(inK)} · out ${dim(ov)} ${Math.round(n2(ov, 'framesPerSecond'))}fps ${kb(outK)} · ${Math.round(rtt * 1000)}ms · ${p.via || '…'}${codec ? ' · ' + codec : ''}`);
+            if (prev && SHOW_STATS) setDiagLine(`in ${dim(iv)} ${Math.round(n2(iv, 'framesPerSecond'))}fps ${kb(inK)} · out ${dim(ov)} ${Math.round(n2(ov, 'framesPerSecond'))}fps ${kb(outK)} · ${Math.round(rtt * 1000)}ms · ${p.via || '…'}${codec ? ' · ' + codec : ''}`);
           }
           const n = p.net; const first = n.got === 0;
           const dLost = Math.max(0, lost - n.lost), dGot = Math.max(0, got - n.got), dFreeze = Math.max(0, freezes - n.freezes);
@@ -803,7 +805,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const controls = <>
     {connected && <IconButton size="lg" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
     {connected && call?.video && <IconButton size="lg" icon={cameraOff ? 'videoOff' : 'video'} variant={cameraOff ? 'on' : undefined} label={cameraOff ? 'Turn camera on' : 'Turn camera off'} disabled={busy} onClick={() => void toggleCamera()} />}
-    {connected && canShare && <IconButton size="lg" icon="screen" variant={sharing ? 'on' : undefined} label={sharing ? 'Stop presenting' : 'Share your screen'} aria-haspopup={sharing ? undefined : 'dialog'} aria-expanded={sharing ? undefined : shareMenu} onClick={() => { if (sharing) stopShare(); else setShareMenu(true); }} />}
+    {connected && canShare && <IconButton size="lg" icon="screen" variant={sharing ? 'end' : undefined} label={sharing ? 'Stop presenting' : 'Share your screen'} aria-haspopup={sharing ? undefined : 'dialog'} aria-expanded={sharing ? undefined : shareMenu} onClick={() => { if (sharing) stopShare(); else setShareMenu(true); }} />}
     {connected && <IconButton size="lg" icon="sliders" label="Audio: choose microphone and speaker" onClick={() => setAudioSheet(true)} />}
     {connected && call && <IconButton size="lg" icon="game" label="Play a game, the call continues" onClick={() => { setExpanded(false); nav(`/room/${call.code}?tab=play`); }} />}
     <IconButton size="lg" icon="hangup" variant="end" label={connected ? 'End call' : 'Cancel call'} onClick={() => finish()} />
@@ -821,9 +823,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         <div className="grow"><p className="h3">{group ? call.title : others[0]?.name || call.title}</p><p className="small muted">{!group && others[0]?.muted && connected ? 'Muted · ' : ''}{status}</p></div>
         {error && <span className="small rose">{error}</span>}
         {!error && selfWeak && connected && <span className="small muted net-hint"><i />Your connection is weak</span>}
-        {!error && connected && diagLine && <span className="tiny quiet call-stats" title="Live call stats — screenshot this during a bad moment and send it to Claude.">{diagLine}</span>}
-        {!error && connected && diag === 'no-relay' && <span className="small net-hint net-warn" title="The server didn't give the app a TURN relay, so calls fall back to a direct link that fails on many networks. Set CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_API_TOKEN on the backend."><i />Relay server off — calls may drop. Tell Claude.</span>}
-        {sharing && <span className="presenting"><i />You’re presenting{sharing.sound ? ' with sound' : ''}<button onClick={() => stopShare()}>Stop</button></span>}
+        {sharing && <span className="presenting"><i /><span>You’re presenting{sharing.sound ? ' with sound' : ''}</span><button onClick={() => stopShare()}><Icon name="x" size={14} />Stop</button></span>}
         {connected && others.length >= 2 && <div className="layout-seg" role="group" aria-label="Layout">
           {(['auto', 'grid', 'speaker'] as Layout[]).map(v => <button key={v} className={layout === v ? 'on' : ''} aria-pressed={layout === v} onClick={() => pickLayout(v)}>{v === 'auto' ? 'Auto' : v === 'grid' ? 'Grid' : 'Speaker'}</button>)}
         </div>}
@@ -832,7 +832,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         const swap = selfBig && (!!sharing || (!!local && !cameraOff)) && connected && others.length === 1;
         const me = sharing ? <><VideoEl stream={sharing.preview} muted /><span className="name">Your screen{muted && <Icon name="micOff" size={13} />}</span></> : <><VideoEl stream={local!} muted /><span className="name">You{muted && <Icon name="micOff" size={13} />}</span></>;
         return <>
-          {swap ? <div className={`call-stage${sharing ? ' my-screen' : ''}`} style={{ gridTemplateColumns: 'minmax(0, min(1100px, 100%))' }}><div className="tile self-big">{me}</div></div>
+          {swap ? <div className={`call-stage${sharing ? ' my-screen' : ''}`} style={{ gridTemplateColumns: `minmax(0, min(1100px, 100%, ${FIT_W(1)}))` }}><div className="tile self-big">{me}</div></div>
             : <Stage others={others} connected={connected} video={call.video} title={call.title} status={status} ringing={call.members} layout={layout} pinned={pinned === SELF ? null : pinned ?? presenter} onPin={setPinned} speaker={speaker} />}
           {swap ? <button className="tile self-tile swap" onClick={() => setSelfBig(false)} aria-label={`Make ${firstName(others[0].name)} big`} title="Make this the big picture"><PeerTile p={others[0]} video={call.video} /></button>
             : (sharing || (local && !cameraOff)) && <button className={`tile self-tile swap${sharing ? ' screen' : ''}`} onClick={() => { if (connected && others.length === 1) setSelfBig(true); }} aria-label="Make your picture big" title={others.length === 1 ? 'Make this the big picture' : undefined}>{me}</button>}
@@ -927,6 +927,8 @@ function GameFace({ f }: { f: Face }) {
     <span className="game-face-name">{f.self ? 'You' : firstName(f.name)}{f.muted && <Icon name="micOff" size={12} />}</span>
   </div>;
 }
+/** Widest a tile can be so `rows` rows of 16:10 tiles fit between the call's top bar and its buttons. */
+const FIT_W = (rows: number) => `calc((100dvh - 230px - ${(rows - 1) * 14}px) / ${rows} * 1.6)`;
 export function Stage({ others, connected, video, title, status, ringing, layout = 'auto', pinned = null, onPin, speaker = null }: { others: PeerView[]; connected: boolean; video: boolean; title: string; status: string; ringing: CallPeer[]; layout?: Layout; pinned?: string | null; onPin?: (id: string | null) => void; speaker?: string | null }) {
   if (!connected || !others.length) return <div className="call-stage"><div className="col gap-16" style={{ alignItems: 'center' }}>
     <div className="stack ring">{(others.length ? others : ringing).slice(0, 4).map(p => <Avatar key={p.id} name={p.name} size={104} />)}</div>
@@ -947,7 +949,7 @@ export function Stage({ others, connected, video, title, status, ringing, layout
   }
   const cols = n === 1 ? 1 : n <= 4 ? 2 : 3;
   const ordered = pinned ? [...others.filter(p => p.id === pinned), ...others.filter(p => p.id !== pinned)] : others;
-  return <div className={`call-stage${n === 1 ? ' solo' : ''}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, ${n === 1 ? 'min(1100px, 100%)' : '520px'}))` }}>
+  return <div className={`call-stage${n === 1 ? ' solo' : ''}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, ${n === 1 ? `min(1100px, 100%, ${FIT_W(1)})` : `min(520px, ${FIT_W(Math.ceil(n / cols))})`}))` }}>
     {ordered.map(p => <PeerTile key={p.id} p={p} video={video} pinned={pinned === p.id} onPin={pin ? () => pin(p.id) : undefined} />)}
   </div>;
 }
