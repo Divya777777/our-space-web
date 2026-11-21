@@ -14,6 +14,7 @@ import type { CallPeer, CallSignal } from '../lib/types';
 import type { LiveCall } from '../lib/model';
 import { Avatar, IconButton, firstName, useToast } from './ui';
 import { Icon } from './Icon';
+import { ShareScreenSheet } from './ShareScreenSheet';
 
 type Phase = 'idle' | 'incoming' | 'outgoing' | 'connecting' | 'connected' | 'reconnecting';
 type Candidate = RTCIceCandidateInit;
@@ -141,6 +142,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const screen = useRef<{ video: MediaStreamTrack; display: MediaStream; kind: ShareKind; mix?: Mix } | null>(null);
   const [sharing, setSharing] = useState<null | { sound: boolean; preview: MediaStream }>(null);
   const [shareMenu, setShareMenu] = useState(false);
+  useEffect(() => { if (!call) setShareMenu(false); }, [call]);
   const tone = useRef<{ stop: () => void } | null>(null);
   /** False when only the public address servers answered: calls through strict networks then can't connect. */
   const hasRelay = () => (ice.current || []).some(x => ([] as string[]).concat(x.urls).some(u => /^turns?:/i.test(u)));
@@ -801,13 +803,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const controls = <>
     {connected && <IconButton size="lg" icon={muted ? 'micOff' : 'mic'} variant={muted ? 'on' : undefined} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} />}
     {connected && call?.video && <IconButton size="lg" icon={cameraOff ? 'videoOff' : 'video'} variant={cameraOff ? 'on' : undefined} label={cameraOff ? 'Turn camera on' : 'Turn camera off'} disabled={busy} onClick={() => void toggleCamera()} />}
-    {connected && canShare && <div className="share-wrap">
-      <IconButton size="lg" icon="screen" variant={sharing ? 'on' : undefined} label={sharing ? 'Stop presenting' : 'Share your screen'} aria-expanded={sharing ? undefined : shareMenu} onClick={() => { if (sharing) stopShare(); else setShareMenu(o => !o); }} />
-      {shareMenu && !sharing && <div className="share-menu glass" role="menu" aria-label="Share your screen">
-        <button role="menuitem" onClick={() => void startShare(false)}><Icon name="screen" size={18} /><span><b>Share screen</b><small>A tab, a window or your whole screen. Sharpest for text and slides.</small></span></button>
-        <button role="menuitem" onClick={() => void startShare(true)}><Icon name="volume" size={18} /><span><b>Share screen with sound</b><small>For videos and music. Pick a Chrome tab and keep “Also share tab audio” on.</small></span></button>
-      </div>}
-    </div>}
+    {connected && canShare && <IconButton size="lg" icon="screen" variant={sharing ? 'on' : undefined} label={sharing ? 'Stop presenting' : 'Share your screen'} aria-haspopup={sharing ? undefined : 'dialog'} aria-expanded={sharing ? undefined : shareMenu} onClick={() => { if (sharing) stopShare(); else setShareMenu(true); }} />}
     {connected && <IconButton size="lg" icon="sliders" label="Audio: choose microphone and speaker" onClick={() => setAudioSheet(true)} />}
     {connected && call && <IconButton size="lg" icon="game" label="Play a game, the call continues" onClick={() => { setExpanded(false); nav(`/room/${call.code}?tab=play`); }} />}
     <IconButton size="lg" icon="hangup" variant="end" label={connected ? 'End call' : 'Cancel call'} onClick={() => finish()} />
@@ -865,6 +861,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     {call && <video ref={floatSrc} className="float-src" muted playsInline autoPlay aria-hidden="true" />}
     {children}
     {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} sinkId={speakerId} />)}
+    {shareMenu && connected && call && !sharing && <ShareScreenSheet onShare={sound => void startShare(sound)} onClose={() => setShareMenu(false)} />}
     {audioSheet && call && <AudioDeviceSheet devices={devices} inUse={micLabel} choice={audioChoice} onClose={() => setAudioSheet(false)} onChange={next => {
       const micChanged = next.mic !== audioChoice.mic;
       setAudioChoice(next); saveAudioChoice(next);

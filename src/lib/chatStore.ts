@@ -4,7 +4,7 @@ import { localKey, openLocal, sealLocal } from './e2e';
 
 export type ChatFile = { key: string; name: string; mime: string; size: number; w?: number; h?: number };
 export type ChatItem = { id: string; from: string; name: string; at: number; kind: 'text' | 'image' | 'file'; /** Private message: who it was sent to. */ to?: string[]; text?: string; file?: ChatFile; pending?: boolean; failed?: boolean };
-export type ChatState = { cursor: number; items: ChatItem[]; parts?: Record<string, { keys: string[]; at: number }>; /** Messages deleted on this device only (they stay for everyone else). */ hidden?: string[] };
+export type ChatState = { acks?: number[]; cursor: number; items: ChatItem[]; parts?: Record<string, { keys: string[]; at: number }>; /** Messages deleted on this device only (they stay for everyone else). */ hidden?: string[] };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 function db(): Promise<IDBDatabase> {
@@ -18,8 +18,10 @@ function db(): Promise<IDBDatabase> {
 }
 function run<T>(store: 'history' | 'files', mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest): Promise<T> {
   return db().then(d => new Promise<T>((resolve, reject) => {
-    const req = fn(d.transaction(store, mode).objectStore(store));
-    req.onsuccess = () => resolve(req.result as T);
+    const tx = d.transaction(store, mode); const req = fn(tx.objectStore(store));
+    tx.oncomplete = () => resolve(req.result as T);
+    tx.onabort = () => reject(tx.error || new Error('Local storage write failed'));
+    tx.onerror = () => reject(tx.error);
     req.onerror = () => reject(req.error);
   }));
 }
@@ -33,8 +35,15 @@ export async function loadChat(userId: string, code: string): Promise<ChatState>
     return plain ? JSON.parse(strFromU8(plain)) : { cursor: 0, items: [] };
   } catch { return { cursor: 0, items: [] }; }
 }
-export async function saveChat(userId: string, code: string, state: ChatState) {
-  const body = { cursor: state.cursor, items: state.items.filter(i => !i.pending), ...(state.parts && Object.keys(state.parts).length ? { parts: state.parts } : {}) };
+const writes = new Map<string, Promise<void>>();
+export function saveChat(userId: string, code: string, state: ChatState): Promise<void> {
+  const key = `${userId}/${code}`;
+  const operation = (writes.get(key) || Promise.resolve()).catch(() => {}).then(() => writeChat(userId, code, state));
+  writes.set(key, operation);
+  return operation.finally(() => { if (writes.get(key) === operation) writes.delete(key); });
+}
+async function writeChat(userId: string, code: string, state: ChatState) {
+  const body = { acks: state.acks || [], hidden: state.hidden || [], cursor: state.cursor, items: state.items.map(i => i.pending ? { ...i, pending: false, failed: true } : i), ...(state.parts && Object.keys(state.parts).length ? { parts: state.parts } : {}) };
   const sealed = sealLocal(strToU8(JSON.stringify(body)), localKey(userId));
   await run('history', 'readwrite', s => s.put(sealed, roomKey(userId, code)));
 }

@@ -1,0 +1,18 @@
+.screen-share-options { display: flex; flex-direction: column; gap: 12px; }
+.screen-share-option { display: flex; align-items: center; gap: 14px; width: 100%; padding: 20px; text-align: left; color: var(--text); background: var(--glass-soft); border: 1px solid var(--edge-lit); border-radius: 18px; transition: background .18s, border-color .18s; }
+.screen-share-option:hover { background: var(--lav-soft); border-color: var(--lav); }
+.screen-share-option:focus-visible { outline: 2px solid var(--lav); outline-offset: 3px; }
+.screen-share-icon { display: grid; place-items: center; width: 48px; height: 48px; flex: none; border-radius: 14px; color: var(--lav); background: var(--lav-soft); }
+.screen-share-option.with-sound .screen-share-icon { color: var(--mint); background: rgba(182,221,207,.12); }
+.screen-share-copy { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.screen-share-copy strong { font-size: 16px; font-weight: 600; }
+.screen-share-copy > span { font-size: 13px; line-height: 1.55; color: var(--muted); }
+.screen-share-copy small { font-size: 11px; line-height: 1.5; color: var(--lav); }
+.screen-share-option > svg { flex: none; color: var(--muted); }
+.screen-share-help { padding: 4px 4px 0; font-size: 12px; color: var(--muted); line-height: 1.7; }
+@media (max-width: 420px) {
+  .screen-share-option { padding: 16px 12px; gap: 10px; }
+  .screen-share-icon { width: 38px; height: 38px; border-radius: 12px; }
+  .screen-share-copy strong { font-size: 15px; }
+}
+@media (prefers-reduced-motion: reduce) { .screen-share-option { transition: none; } }

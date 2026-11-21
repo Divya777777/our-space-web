@@ -1,3 +1,4 @@
+import { confirmLocalDelivery } from './chatDelivery';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { deflateSync, inflateSync } from 'fflate';
 import { useSpace } from './space';
@@ -14,11 +15,15 @@ type Incoming = { id: number; from: string; name: string; at: number; payload: S
 /** Private room chat: end-to-end encrypted, history kept only in this browser. */
 export function useRoomChat(room: Room | undefined) {
   const space = useSpace();
+  const deliveryApi = space.api;
   const userId = space.user.id;
   const code = room?.code || '';
   const [state, setState] = useState<ChatState>({ cursor: 0, items: [] });
-  const [loaded, setLoaded] = useState(false);
+  const [loadedFor, setLoadedFor] = useState('');
+  const loaded = loadedFor === `${userId}/${code}`;
   const ref = useRef(state);
+  const acking = useRef(false);
+  const loadedScope = useRef('');
   const me = useRef<Identity | null>(null);
   const syncing = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -37,6 +42,7 @@ export function useRoomChat(room: Room | undefined) {
   /** Call while the chat is on screen: everything downloaded so far counts as seen. */
   const markRead = useCallback(() => tell('r'), [tell]);
   const commit = useCallback((next: ChatState) => {
+    if (loadedScope.current !== `${userId}/${code}`) return;
     ref.current = next; setState(next);
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void saveChat(userId, code, next).catch(() => {}); }, 250);
@@ -44,9 +50,10 @@ export function useRoomChat(room: Room | undefined) {
 
   useEffect(() => {
     if (!code) return;
+    loadedScope.current = '';
     let alive = true;
     me.current = loadIdentity(userId);
-    void loadChat(userId, code).then(saved => { if (alive) { ref.current = saved; setState(saved); setLoaded(true); } });
+    void loadChat(userId, code).then(saved => { if (alive) { ref.current = saved; setState(saved); loadedScope.current = `${userId}/${code}`; setLoadedFor(`${userId}/${code}`); } });
     // History copied from the phone: reload it (keeping anything still being sent here).
     const imported = (e: Event) => {
       if (!(e as CustomEvent<string[]>).detail?.includes(code)) return;
@@ -59,22 +66,49 @@ export function useRoomChat(room: Room | undefined) {
       });
     };
     window.addEventListener(CHAT_IMPORTED, imported);
-    return () => { alive = false; clearTimeout(saveTimer.current); window.removeEventListener(CHAT_IMPORTED, imported); };
+    return () => { alive = false; clearTimeout(saveTimer.current); if (loadedScope.current === `${userId}/${code}`) void saveChat(userId, code, ref.current).catch(() => {}); loadedScope.current = ""; window.removeEventListener(CHAT_IMPORTED, imported); };
   }, [userId, code]);
+
+  useEffect(() => {
+    if (!loaded || loadedScope.current !== `${userId}/${code}` || !code) return;
+    let alive = true;
+    const flush = async () => {
+      if (acking.current || !ref.current.acks?.length) return;
+      acking.current = true;
+      const ids = ref.current.acks.slice(0, 100);
+      try {
+        clearTimeout(saveTimer.current);
+        const snapshot = ref.current;
+        const confirmed = await confirmLocalDelivery(
+          () => saveChat(userId, code, snapshot),
+          () => deliveryApi(`/rooms/${code}/e2e/ack`, { ids, ...(me.current ? { deviceId: me.current.deviceId } : {}) }, 'POST'),
+          () => alive && loadedScope.current === `${userId}/${code}`,
+        );
+        if (confirmed) commit({ ...ref.current, acks: (ref.current.acks || []).filter(id => !ids.includes(id)) });
+      } catch { /* Keep acknowledgements locally until storage and server both confirm. */ }
+      finally { acking.current = false; }
+    };
+    void flush(); const timer = setInterval(() => void flush(), 2000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [loaded, userId, code, deliveryApi, commit]);
 
   const remoteCursor = room?.e2eCursor || 0;
   const [unreadable, setUnreadable] = useState(0);
   useEffect(() => {
-    if (!loaded || !me.current || remoteCursor <= ref.current.cursor || syncing.current) return;
+    if (!loaded || loadedScope.current !== `${userId}/${code}` || !me.current || remoteCursor <= ref.current.cursor || syncing.current) return;
     syncing.current = true;
     void (async () => {
       try {
         let more = true;
         while (more) {
-          const page = await space.api<{ messages: Incoming[]; more: boolean }>(`/rooms/${code}/e2e?after=${ref.current.cursor}&limit=20`);
+          const previousCursor = ref.current.cursor;
+          const page = await space.api<{ messages: Incoming[]; more: boolean; cursor?: number }>(`/rooms/${code}/e2e?after=${ref.current.cursor}&limit=20`);
+          if (loadedScope.current !== `${userId}/${code}`) return;
+          const pageParts = { ...(ref.current.parts || {}) };
+          const acknowledged: number[] = []; const cleanup: string[] = [];
           const added: ChatItem[] = []; let skipped = 0;
           for (const m of page.messages) {
-            if (ref.current.items.some(i => i.id === String(m.id))) continue;
+            if (ref.current.items.some(i => i.id === String(m.id))) { acknowledged.push(m.id); continue; }
             const sender = roomRef.current?.members.find(p => p.id === m.from);
             const plain = open(m.payload, m.from, sender, userId, me.current!);
             if (!plain) { if (m.payload.keys && !m.payload.keys[`${userId}:${me.current!.deviceId}`]) skipped++; continue; }
@@ -83,33 +117,36 @@ export function useRoomChat(room: Room | undefined) {
               if (m.from === userId && m.payload.sd === me.current!.deviceId) continue;
               const fid = String(meta.fid || ''); if (!fid || typeof meta.i !== 'number') continue;
               const key = await saveFile(userId, code, `part-${fid}-${meta.i}`, data.slice(), 'application/octet-stream');
-              const parts = { ...(ref.current.parts || {}) }; const entry = parts[fid] || { keys: [], at: Date.now() };
+              const parts = pageParts; const entry = parts[fid] || { keys: [], at: Date.now() };
               const keys = [...entry.keys]; keys[meta.i] = key; parts[fid] = { keys, at: entry.at };
-              ref.current = { ...ref.current, parts };
-              continue;
+              acknowledged.push(m.id); continue;
             }
             const item: ChatItem = { id: String(m.id), from: m.from, name: m.name || sender?.name || '', at: meta.at || m.at, kind: meta.t, text: meta.text, ...(Array.isArray(meta.pm) && meta.pm.length ? { to: meta.pm.map(String) } : {}) };
             if (meta.t !== 'text') {
               let body: Uint8Array = data;
               if (meta.fid && meta.parts) {
-                const entry = ref.current.parts?.[meta.fid];
-                if (!entry || entry.keys.filter(Boolean).length < meta.parts) continue;
+                const entry = pageParts[meta.fid];
+                if (!entry || entry.keys.filter(Boolean).length < meta.parts) throw new Error('Attachment pieces are not saved yet');
                 const pieces = await Promise.all(entry.keys.slice(0, meta.parts).map(async k => new Uint8Array(await (await readFile(k))!.arrayBuffer())));
                 body = new Uint8Array(pieces.reduce((n, p) => n + p.length, 0)); let o = 0; for (const p of pieces) { body.set(p, o); o += p.length; }
-                const parts = { ...(ref.current.parts || {}) }; delete parts[meta.fid]; ref.current = { ...ref.current, parts };
-                void Promise.all(entry.keys.map(removeFile));
+                delete pageParts[meta.fid];
+                cleanup.push(...entry.keys);
               }
               const bytes = meta.z ? inflateSync(body) : body.slice();
               const mime = meta.mime || 'application/octet-stream';
               item.file = { key: await saveFile(userId, code, item.id, bytes, mime), name: meta.name || 'file', mime, size: bytes.length, w: meta.w, h: meta.h };
             }
-            added.push(item);
+            added.push(item); acknowledged.push(m.id);
           }
           if (skipped) setUnreadable(n => n + skipped);
-          const cursor = page.messages.length ? page.messages[page.messages.length - 1].id : ref.current.cursor;
+          if (loadedScope.current !== `${userId}/${code}`) return;
+          const cursor = page.cursor ?? (page.messages.length ? page.messages[page.messages.length - 1].id : ref.current.cursor);
           const hidden = new Set(ref.current.hidden || []);
-          commit({ ...ref.current, cursor: Math.max(cursor, ref.current.cursor), items: [...ref.current.items, ...added.filter(i => !hidden.has(i.id))].sort((a, b) => a.at - b.at) });
-          more = page.more && page.messages.length > 0;
+          commit({ ...ref.current, parts: pageParts, acks: [...new Set([...(ref.current.acks || []), ...acknowledged])], cursor: Math.max(cursor, ref.current.cursor), items: [...ref.current.items, ...added.filter(i => !hidden.has(i.id))].sort((a, b) => a.at - b.at) });
+          clearTimeout(saveTimer.current);
+          await saveChat(userId, code, ref.current);
+          await Promise.all(cleanup.map(removeFile));
+          more = page.more && cursor > previousCursor;
         }
         tell('d');
       } catch { /* retried on the next room update */ }
@@ -120,9 +157,13 @@ export function useRoomChat(room: Room | undefined) {
   const waitingForKeys = (room?.members || []).filter(p => !p.key && !p.devices?.length && p.id !== userId).map(p => p.name);
 
   async function deliver(meta: ChatMeta, data: Uint8Array | undefined, file?: ChatFile, onProgress?: (done: number, total: number) => void) {
+    if (loadedScope.current !== `${userId}/${code}`) throw new Error('Chat is still loading. Please try again.');
     const local: ChatItem = { id: `local-${meta.at}`, from: userId, name: space.user.name, at: meta.at, kind: meta.t as ChatItem['kind'], text: meta.text, file, pending: true, ...(meta.pm ? { to: meta.pm } : {}) };
     commit({ ...ref.current, items: [...ref.current.items, local] });
     try {
+      clearTimeout(saveTimer.current);
+      await saveChat(userId, code, ref.current);
+      if (loadedScope.current !== `${userId}/${code}`) throw new Error('Chat was closed before sending.');
       const id = me.current || (me.current = loadIdentity(userId));
       // A private message is sealed only for the people it's for, plus your own devices.
       const pm = meta.pm;
@@ -132,13 +173,14 @@ export function useRoomChat(room: Room | undefined) {
       if (data && data.length > PART) {
         const fid = `${userId}-${meta.at}`; const parts = Math.ceil(data.length / PART);
         for (let i = 0; i < parts; i++) {
-          await space.api(`/rooms/${code}/e2e`, { ...seal(pack({ t: 'part', fid, i, at: meta.at }, data.subarray(i * PART, (i + 1) * PART)), to, id), hint: 'part', ...priv }, 'POST');
+          await space.api(`/rooms/${code}/e2e`, { ...seal(pack({ t: 'part', fid, i, at: meta.at }, data.subarray(i * PART, (i + 1) * PART)), to, id), localSaved: true, hint: 'part', ...priv }, 'POST');
           onProgress?.(i + 1, parts + 1);
         }
         head = { ...meta, fid, parts }; body = undefined;
       }
-      const sent = await space.api<{ id: number }>(`/rooms/${code}/e2e`, { ...seal(pack(head, body), to, id), hint: meta.t === 'image' ? 'photo' : meta.t === 'file' ? 'file' : 'message', ...priv }, 'POST');
+      const sent = await space.api<{ id: number }>(`/rooms/${code}/e2e`, { ...seal(pack(head, body), to, id), localSaved: true, hint: meta.t === 'image' ? 'photo' : meta.t === 'file' ? 'file' : 'message', ...priv }, 'POST');
       commit({ ...ref.current, items: ref.current.items.map(i => i.id === local.id ? { ...i, id: String(sent.id), pending: false } : i) });
+      if (loadedScope.current === `${userId}/${code}`) { clearTimeout(saveTimer.current); await saveChat(userId, code, ref.current); }
     } catch (e) {
       commit({ ...ref.current, items: ref.current.items.map(i => i.id === local.id ? { ...i, pending: false, failed: true } : i) });
       throw e;

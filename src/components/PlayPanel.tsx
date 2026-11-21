@@ -28,7 +28,6 @@ function usePoll<T>(load: () => Promise<T>, ms: number, on = true) {
     const run = () => { const g = gen.current; void live.current().then(v => { if (alive && g === gen.current) setRaw(v); }).catch(() => {}); };
     poke.current = run;
     run(); const t = setInterval(() => { if (!document.hidden) run(); }, ms);
-    // Coming back to the tab or window: catch up straight away.
     const back = () => { if (!document.hidden) run(); };
     document.addEventListener('visibilitychange', back); window.addEventListener('focus', back);
     return () => { alive = false; clearInterval(t); document.removeEventListener('visibilitychange', back); window.removeEventListener('focus', back); };
