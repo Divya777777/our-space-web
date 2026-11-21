@@ -5,18 +5,19 @@ import { Icon } from './Icon';
 import { Sheet, firstName } from './ui';
 
 /* ───────── Emoji & GIF picker ───────── */
-export function EmojiPicker({ onPick, onGif, onClose }: { onPick: (e: string) => void; onGif: (g: Gif) => void; onClose: () => void }) {
+export function EmojiPicker({ onPick, onGif, onClose, inline }: { onPick: (e: string) => void; onGif?: (g: Gif) => void; onClose: () => void; /** Inside a sheet: no GIFs, no click-outside closing. */ inline?: boolean }) {
   const [tab, setTab] = useState<string>(() => (recentEmoji().length ? 'recent' : 'smileys'));
   const [q, setQ] = useState('');
   const box = useRef<HTMLDivElement>(null);
   const [gifList, setGifList] = useState<Gif[] | null>(null);
   const [gifErr, setGifErr] = useState('');
   useEffect(() => {
+    if (inline) return;
     const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node) && !(e.target as HTMLElement).closest?.('.emoji-toggle')) onClose(); };
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
-  }, [onClose]);
+  }, [onClose, inline]);
   useEffect(() => {
     if (tab !== 'gif') return;
     const ctl = new AbortController(); setGifErr('');
@@ -25,16 +26,16 @@ export function EmojiPicker({ onPick, onGif, onClose }: { onPick: (e: string) =>
   }, [tab, q]);
   const pick = (e: string) => { rememberEmoji(e); onPick(e); };
   const list = q && tab !== 'gif' ? searchEmoji(q) : tab === 'recent' ? recentEmoji() : EMOJI_CATS.find(c => c.id === tab)?.list || [];
-  return <div className="emoji-pop" ref={box} role="dialog" aria-label="Emoji and GIFs">
-    <div className="emoji-search"><Icon name="search" size={15} /><input autoFocus placeholder={tab === 'gif' ? 'Search GIFs' : 'Search emoji (love, lol, pizza…)'} value={q} onChange={e => setQ(e.target.value)} /></div>
+  return <div className={`emoji-pop${inline ? ' inline' : ''}`} ref={box} role="dialog" aria-label="Emoji and GIFs">
+    <div className="emoji-search"><Icon name="search" size={15} /><input autoFocus={!inline} placeholder={tab === 'gif' ? 'Search GIFs' : 'Search emoji (love, lol, pizza…)'} value={q} onChange={e => setQ(e.target.value)} /></div>
     <div className="emoji-tabs" role="tablist">
       {recentEmoji().length > 0 && <button role="tab" aria-selected={tab === 'recent'} className={tab === 'recent' ? 'on' : ''} onClick={() => setTab('recent')} title="Recent"><Icon name="clock" size={16} /></button>}
       {EMOJI_CATS.map(c => <button key={c.id} role="tab" aria-selected={tab === c.id} className={tab === c.id ? 'on' : ''} onClick={() => setTab(c.id)} title={c.label}>{c.icon}</button>)}
-      {GIPHY_KEY && <button role="tab" aria-selected={tab === 'gif'} className={`gif-tab ${tab === 'gif' ? 'on' : ''}`} onClick={() => setTab('gif')} title="GIFs">GIF</button>}
+      {GIPHY_KEY && onGif && <button role="tab" aria-selected={tab === 'gif'} className={`gif-tab ${tab === 'gif' ? 'on' : ''}`} onClick={() => setTab('gif')} title="GIFs">GIF</button>}
     </div>
     {tab === 'gif' ? <div className="gif-grid">
       {gifErr ? <p className="small muted" style={{ padding: 12 }}>{gifErr}</p> : !gifList ? <p className="small muted" style={{ padding: 12 }}>Loading GIFs…</p> : !gifList.length ? <p className="small muted" style={{ padding: 12 }}>No GIFs for that.</p>
-        : gifList.map(g => <button key={g.id} className="gif-btn" onClick={() => onGif(g)} title={g.title}><img src={g.preview} alt={g.title} loading="lazy" /></button>)}
+        : gifList.map(g => <button key={g.id} className="gif-btn" onClick={() => onGif?.(g)} title={g.title}><img src={g.preview} alt={g.title} loading="lazy" /></button>)}
       <span className="tiny quiet gif-credit">Powered by GIPHY</span>
     </div> : <div className="emoji-grid">
       {list.length ? list.map(e => <button key={e} onClick={() => pick(e)} aria-label={e}>{e}</button>) : <p className="small muted" style={{ gridColumn: '1 / -1', padding: 12 }}>{q ? 'No emoji for that word.' : 'Nothing here yet.'}</p>}
@@ -188,3 +189,27 @@ export function StarredSheet({ items, starred, names, onGo, onUnstar, onClose }:
   </Sheet>;
 }
 export const nameFor = (members: { id: string; name: string }[], me: string) => (id: string) => id === me ? 'You' : firstName(members.find(m => m.id === id)?.name || 'Someone');
+
+/* ───────── Quick reactions (your own six) ───────── */
+const QUICK_KEY = 'ourspace.quickReactions';
+export const DEFAULT_QUICK = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
+export function loadQuick(): string[] { try { const v = JSON.parse(localStorage.getItem(QUICK_KEY) || 'null'); return Array.isArray(v) && v.length === 6 ? v : DEFAULT_QUICK; } catch { return DEFAULT_QUICK; } }
+export function saveQuick(list: string[]) { try { localStorage.setItem(QUICK_KEY, JSON.stringify(list)); } catch { /* fine */ } }
+/** React with any emoji, or change the six that show when you hover a message. */
+export function ReactSheet({ quick, onQuick, onReact, onClose }: { quick: string[]; onQuick: (l: string[]) => void; onReact?: (e: string) => void; onClose: () => void }) {
+  const [editing, setEditing] = useState(!onReact);
+  const [slot, setSlot] = useState(0);
+  const pick = (e: string) => {
+    if (editing) { const next = [...quick]; const dup = next.indexOf(e); if (dup >= 0 && dup !== slot) next[dup] = next[slot]; next[slot] = e; onQuick(next); setSlot(x => (x + 1) % 6); return; }
+    onReact?.(e); onClose();
+  };
+  return <Sheet title={editing ? 'Your quick reactions' : 'React'} sub={editing ? 'Tap a spot, then pick the emoji to put there.' : 'Pick any emoji.'} onClose={onClose}>
+    <div className="quick-row">
+      {quick.map((e, k) => <button key={k} className={`quick-slot ${editing && slot === k ? 'on' : ''}`} onClick={() => (editing ? setSlot(k) : pick(e))} aria-label={editing ? `Change ${e}` : `React ${e}`}>{e}</button>)}
+      <span className="grow" />
+      {onReact && <button className="btn ghost sm" onClick={() => setEditing(x => !x)}><Icon name={editing ? 'check' : 'pencil'} size={14} />{editing ? 'Done' : 'Change these'}</button>}
+      {editing && <button className="btn ghost sm" onClick={() => { onQuick(DEFAULT_QUICK); setSlot(0); }}>Reset</button>}
+    </div>
+    <EmojiPicker inline onPick={pick} onClose={onClose} />
+  </Sheet>;
+}

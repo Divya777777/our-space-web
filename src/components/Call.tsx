@@ -15,6 +15,7 @@ import type { LiveCall } from '../lib/model';
 import { Avatar, IconButton, firstName, useToast } from './ui';
 import { Icon } from './Icon';
 import { ShareScreenSheet } from './ShareScreenSheet';
+import { fullscreenSupported, toggleFullscreen, useFullscreen } from '../lib/fullscreen';
 
 type Phase = 'idle' | 'incoming' | 'outgoing' | 'connecting' | 'connected' | 'reconnecting';
 type Candidate = RTCIceCandidateInit;
@@ -150,6 +151,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const [chatOpen, setChatOpen] = useState(false);
   // Full-screen call: the top bar and buttons fade away after a few still seconds and come back on any mouse move or touch.
   const [uiIdle, setUiIdle] = useState(false);
+  const fullOn = useFullscreen();
   const overUi = useRef(false);
   useEffect(() => { if (!call) setShareMenu(false); }, [call]);
   const tone = useRef<{ stop: () => void } | null>(null);
@@ -842,6 +844,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         {error && <span className="small rose">{error}</span>}
         {!error && selfWeak && connected && <span className="small muted net-hint"><i />Your connection is weak</span>}
         {sharing && <span className="presenting"><i /><span>You’re presenting{sharing.sound ? ' with sound' : ''}</span><button onClick={() => stopShare()}><Icon name="x" size={14} />Stop</button></span>}
+        {fullscreenSupported && <IconButton icon={fullOn ? 'collapse' : 'expand'} label={fullOn ? 'Exit full screen' : 'Full screen'} onClick={() => void toggleFullscreen()} />}
         {connected && others.length >= 2 && <div className="layout-seg" role="group" aria-label="Layout">
           {(['auto', 'grid', 'speaker'] as Layout[]).map(v => <button key={v} className={layout === v ? 'on' : ''} aria-pressed={layout === v} onClick={() => pickLayout(v)}>{v === 'auto' ? 'Auto' : v === 'grid' ? 'Grid' : 'Speaker'}</button>)}
         </div>}
@@ -850,7 +853,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         const swap = selfBig && (!!sharing || (!!local && !cameraOff)) && connected && others.length === 1;
         const me = sharing ? <><VideoEl stream={sharing.preview} muted /><span className="name">Your screen{muted && <Icon name="micOff" size={13} />}</span></> : <><VideoEl stream={local!} muted /><span className="name">You{muted && <Icon name="micOff" size={13} />}</span></>;
         return <>
-          {swap ? <div className={`call-stage${sharing ? ' my-screen' : ''}`} style={{ gridTemplateColumns: `minmax(0, min(1100px, 100%, ${FIT_W(1)}))` }}><div className="tile self-big">{me}</div></div>
+          {swap ? <div className={`call-stage${sharing ? ' my-screen' : ''}`} style={{ gridTemplateColumns: `minmax(0, min(1800px, 100%, ${FIT_W(1, 16 / 9)}))` }}><div className="tile self-big">{me}</div></div>
             : <Stage others={others} connected={connected} video={call.video} title={call.title} status={status} ringing={call.members} layout={layout} pinned={pinned === SELF ? null : pinned ?? presenter} onPin={setPinned} speaker={speaker} />}
           {swap ? <button className="tile self-tile swap" onClick={() => setSelfBig(false)} aria-label={`Make ${firstName(others[0].name)} big`} title="Make this the big picture"><PeerTile p={others[0]} video={call.video} /></button>
             : (sharing || (local && !cameraOff)) && <button className={`tile self-tile swap${sharing ? ' screen' : ''}`} onClick={() => { if (connected && others.length === 1) setSelfBig(true); }} aria-label="Make your picture big" title={others.length === 1 ? 'Make this the big picture' : undefined}>{me}</button>}
@@ -946,7 +949,7 @@ function GameFace({ f }: { f: Face }) {
   </div>;
 }
 /** Widest a tile can be so `rows` rows of 16:10 tiles fit between the call's top bar and its buttons. */
-const FIT_W = (rows: number) => `calc((100dvh - 230px - ${(rows - 1) * 14}px) / ${rows} * 1.6)`;
+const FIT_W = (rows: number, ratio = 1.6) => `calc((100dvh - 172px - ${(rows - 1) * 10}px) / ${rows} * ${ratio})`;
 export function Stage({ others, connected, video, title, status, ringing, layout = 'auto', pinned = null, onPin, speaker = null }: { others: PeerView[]; connected: boolean; video: boolean; title: string; status: string; ringing: CallPeer[]; layout?: Layout; pinned?: string | null; onPin?: (id: string | null) => void; speaker?: string | null }) {
   if (!connected || !others.length) return <div className="call-stage"><div className="col gap-16" style={{ alignItems: 'center' }}>
     <div className="stack ring">{(others.length ? others : ringing).slice(0, 4).map(p => <Avatar key={p.id} name={p.name} size={104} />)}</div>
@@ -967,7 +970,7 @@ export function Stage({ others, connected, video, title, status, ringing, layout
   }
   const cols = n === 1 ? 1 : n <= 4 ? 2 : 3;
   const ordered = pinned ? [...others.filter(p => p.id === pinned), ...others.filter(p => p.id !== pinned)] : others;
-  return <div className={`call-stage${n === 1 ? ' solo' : ''}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, ${n === 1 ? `min(1100px, 100%, ${FIT_W(1)})` : `min(520px, ${FIT_W(Math.ceil(n / cols))})`}))` }}>
+  return <div className={`call-stage${n === 1 ? ' solo' : ''}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, ${n === 1 ? `min(1800px, 100%, ${FIT_W(1, 16 / 9)})` : `min(900px, ${FIT_W(Math.ceil(n / cols))})`}))` }}>
     {ordered.map(p => <PeerTile key={p.id} p={p} video={video} pinned={pinned === p.id} onPin={pin ? () => pin(p.id) : undefined} />)}
   </div>;
 }

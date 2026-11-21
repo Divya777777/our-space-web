@@ -19,6 +19,7 @@ import { PlayPanel } from '../components/PlayPanel';
 import { Plans } from '../components/Planner';
 import { SaveSheet } from '../components/SaveSheet';
 import { useCall } from '../components/Call';
+import { fullscreenSupported, toggleFullscreen, useFullscreen } from '../lib/fullscreen';
 import { Avatar, Button, IconButton, Notice, Segments, Sheet, Skeleton, copyText, firstName, useConfirm, useToast } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { Star } from '../components/Brand';
@@ -63,6 +64,7 @@ export default function RoomPage() {
   const chat = useRoomChat(room);
   const [seenChat, setSeenChat] = useState(0);
   useEffect(() => { if (tab === 'chat') setSeenChat(chat.items.length); }, [tab, chat.items.length]);
+  const full = useFullscreen();
   const unread = tab !== 'chat' && chat.items.slice(seenChat).some(i => i.from !== space.user.id);
   // Chat over a full-screen video call: this room offers it, and a new message from someone else pops it open.
   const roomCode = room?.code;
@@ -266,6 +268,7 @@ export default function RoomPage() {
       <h1 className="ellipsis room-name" title={room.name}>{room.name}</h1>
       <button className="small muted row gap-4" onClick={async () => { if (await copyText(room.code)) toast('Room code copied.', { icon: 'copy' }); }} aria-label={`Copy room code ${room.code}`}><span className="room-code">{room.code}</span> <Icon name="copy" size={13} /></button>
     </div>
+    {fullscreenSupported && <IconButton icon={full ? 'collapse' : 'expand'} label={full ? 'Exit full screen' : 'Full screen'} onClick={() => void toggleFullscreen()} />}
     <div className="stack" aria-label={`${room.members.length} people in this room`}>{room.members.slice(0, 4).map(m => <Avatar key={m.id} name={m.name} size={34} />)}</div>
     {others.length > 0 && !call.activeCode && !joinable && <>
       <IconButton icon="phone" label={others.length > 1 ? 'Voice call the room' : `Voice call ${others[0].name}`} onClick={() => call.start(code, others, false, others.length > 1 ? room.name : others[0].name)} />

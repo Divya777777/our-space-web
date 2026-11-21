@@ -7,7 +7,7 @@ import { ChatItem, fileUrl } from '../lib/chatStore';
 import { isBlockedId, useBlocked } from '../lib/safety';
 import { Icon } from './Icon';
 import { LinkSheet } from './LinkSheet';
-import { CameraSheet, EmojiPicker, MediaSheet, StarredSheet, VoiceBubble, clockOf, isVoice, nameFor, useVoiceRecorder } from './ChatExtras';
+import { ReactSheet, loadQuick, saveQuick, CameraSheet, EmojiPicker, MediaSheet, StarredSheet, VoiceBubble, clockOf, isVoice, nameFor, useVoiceRecorder } from './ChatExtras';
 import { suggestEmoji } from '../lib/emoji';
 import type { Gif } from '../lib/emoji';
 import { Avatar, IconButton, Notice, firstName, useConfirm, useToast } from './ui';
@@ -40,6 +40,9 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   const [camera, setCamera] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [sheet, setSheet] = useState<'media' | 'starred' | null>(null);
+  const [quick, setQuickState] = useState(loadQuick);
+  const setQuick = (l: string[]) => { setQuickState(l); saveQuick(l); };
+  const [reactFor, setReactFor] = useState<ChatItem | null>(null);
   const names = nameFor(room.members, space.user.id);
   const starred = new Set(chat.starred);
   const focusBox = () => setTimeout(() => box.current?.focus(), 0);
@@ -82,7 +85,9 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   const stagedRef = useRef(staged); stagedRef.current = staged;
   // Like WhatsApp: new messages scroll into view only while you're at the bottom (or when you sent them).
   // Scrolled up, a round button with the count of new ones takes you straight down.
-  const scroller = useCallback(() => end.current?.closest('.side-body') as HTMLElement | null, []);
+  const list = useRef<HTMLDivElement>(null);
+  // The messages scroll on their own; the message box below them stays put.
+  const scroller = useCallback(() => list.current, []);
   const [away, setAway] = useState(false);
   const [fresh, setFresh] = useState(0);
   const awayRef = useRef(false);
@@ -95,9 +100,9 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   const jumpDown = (smooth = true) => { const el = scroller(); if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); setFresh(0); };
   const seenCount = useRef(0);
   useEffect(() => {
-    const added = items.length - seenCount.current; seenCount.current = items.length;
+    const first = seenCount.current === 0; const added = items.length - seenCount.current; seenCount.current = items.length;
     const last = items[items.length - 1];
-    if (awayRef.current && added > 0 && last && last.from !== space.user.id) { setFresh(n => n + added); return; }
+    if (!first && awayRef.current && added > 0 && last && last.from !== space.user.id) { setFresh(n => n + added); return; }
     const el = scroller(); if (el && el.scrollHeight > el.clientHeight + 1) el.scrollTop = el.scrollHeight;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items.length, staged.length]);
@@ -186,7 +191,7 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   let lastDay = ''; let lastFrom = '';
   return <div className={`col chat-drop ${dropping ? 'dropping' : ''}`} style={{ flex: 1, minHeight: 0, gap: 0 }} {...dragProps}>
     {dropping && <div className="drop-hint" aria-hidden="true"><Icon name="paperclip" size={22} />Drop to add</div>}
-    <div className="chat" style={{ flex: 1 }}>
+    <div className="chat" ref={list}>
       <p className="tiny quiet row gap-8" style={{ justifyContent: 'center', padding: '4px 0 10px', textAlign: 'center' }}><Icon name="lock" size={13} />Private. Only people in this room can read it. History stays in this browser.</p>
       {!hideLink && !compact && <div className="link-cta-wrap"><button className="link-cta" onClick={() => setLinking(true)}>
         <span className="center" style={{ width: 36, height: 36, borderRadius: 12, background: 'rgba(200,182,255,.18)', color: 'var(--lav)', flex: 'none' }}><Icon name="phone" size={18} /></span>
@@ -202,13 +207,16 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
       </div>}
       {!chat.loaded && <p className="small muted">Loading messages…</p>}
       {chat.loaded && !items.length && <div className="col gap-8" style={{ alignItems: 'center', textAlign: 'center', padding: '40px 12px' }}><Icon name="chat" size={28} /><p className="h3">Say hi</p><p className="small muted">Messages, photos and files up to 16 MB. Drop a file here to add it.</p></div>}
-      {items.map(i => {
+      {items.map((i, k) => {
         const day = dayLabel(i.at); const showDay = day !== lastDay; lastDay = day;
+        // The time shows once per run: under the last message someone sent within the same minute.
+        const nx = items[k + 1];
+        const showTime = !nx || nx.from !== i.from || Math.floor(nx.at / 60000) !== Math.floor(i.at / 60000) || dayLabel(nx.at) !== day;
         const showName = i.from !== space.user.id && (i.from !== lastFrom || showDay); lastFrom = i.from;
         const mine = i.from === space.user.id; const sent = !i.pending && !i.failed && /^\d+$/.test(i.id);
         return <div key={i.id} style={{ display: 'contents' }}>
           {showDay && <p className="tiny quiet" style={{ textAlign: 'center', margin: '10px 0 4px' }}>{day}</p>}
-          <Message item={i} starred={starred.has(i.id)} names={room.members} myId={space.user.id} online={online.has(i.from)} onReplyPrivately={canPrivate && !mine && reachable.some(m => m.id === i.from) ? () => setPrivateTo(i.from) : undefined} status={mine && sent ? statusOf(Number(i.id), others, room.receipts) : null} mine={mine} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)}
+          <Message item={i} quick={quick} onMoreReact={sent && !allBlocked && !i.deleted ? () => setReactFor(i) : undefined} showTime={showTime} starred={starred.has(i.id)} names={room.members} myId={space.user.id} online={online.has(i.from)} onReplyPrivately={canPrivate && !mine && reachable.some(m => m.id === i.from) ? () => setPrivateTo(i.from) : undefined} status={mine && sent ? statusOf(Number(i.id), others, room.receipts) : null} mine={mine} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)}
             actions={sent && !allBlocked ? { react: e => react(i, e), reply: i.deleted ? undefined : () => startReply(i), edit: mine && !i.deleted && i.kind === 'text' ? () => startEdit(i) : undefined, deleteAll: mine && !i.deleted ? () => void deleteAll(i) : undefined, deleteMine: () => void deleteMine(i), star: i.deleted ? undefined : () => chat.toggleStar(i.id), quote: goTo, photo: (url, name) => setViewer({ url, name }) } : { deleteMine: i.pending ? undefined : () => void deleteMine(i), quote: goTo, photo: (url, name) => setViewer({ url, name }) }} />
         </div>;
       })}
@@ -219,6 +227,7 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
     {chat.unreadable > 0 && <div style={{ marginTop: 10 }}><Notice icon="lock">Some messages were sent before this browser joined, or from an older phone app. <button className="lav" onClick={() => setLinking(true)}>Copy them from your phone</button></Notice></div>}
     {linking && <LinkSheet onClose={() => setLinking(false)} />}
     {viewer && <PhotoViewer {...viewer} onClose={() => setViewer(null)} />}
+    {reactFor && <ReactSheet quick={quick} onQuick={setQuick} onReact={e => react(reactFor, e)} onClose={() => setReactFor(null)} />}
     {camera && <CameraSheet onShot={f => stage([f])} onClose={() => setCamera(false)} />}
     {sheet === 'media' && <MediaSheet items={items} names={names} onOpen={(url, name) => setViewer({ url, name })} onClose={() => setSheet(null)} />}
     {sheet === 'starred' && <StarredSheet items={items} starred={chat.starred} names={names} onGo={goTo} onUnstar={id => chat.toggleStar(id)} onClose={() => setSheet(null)} />}
@@ -286,7 +295,7 @@ function photoSize(w?: number, h?: number): React.CSSProperties | undefined {
 const QUICK = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
 const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60000); if (m < 1) return 'just now'; if (m < 60) return `${m} min ago`; const h = Math.round(m / 60); if (h < 24) return `${h} h ago`; return new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' }); };
 type Actions = { star?: () => void; react?: (emoji: string) => void; reply?: () => void; edit?: () => void; deleteAll?: () => void; deleteMine?: () => void; quote: (id: string) => void; photo: (url: string, name: string) => void };
-function Message({ starred, item, status, mine, showName, onReport, onDismiss, names, myId, onReplyPrivately, online, actions }: { item: ChatItem; status: Status | null; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void; names: { id: string; name: string }[]; myId: string; onReplyPrivately?: () => void; online?: boolean; actions: Actions; starred?: boolean }) {
+function Message({ quick = QUICK, onMoreReact, showTime = true, starred, item, status, mine, showName, onReport, onDismiss, names, myId, onReplyPrivately, online, actions }: { item: ChatItem; status: Status | null; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void; names: { id: string; name: string }[]; myId: string; onReplyPrivately?: () => void; online?: boolean; actions: Actions; starred?: boolean; showTime?: boolean; quick?: string[]; onMoreReact?: () => void }) {
   const [url, setUrl] = useState('');
   const [menu, setMenu] = useState(false);
   const [open, setOpen] = useState(false); // touch: long-press shows the bar
@@ -332,7 +341,8 @@ function Message({ starred, item, status, mine, showName, onReport, onDismiss, n
       {item.re && !item.deleted && <button className="msg-quote" onClick={() => actions.quote(item.re!.id)}><b>{item.re.name}</b><span>{item.re.text}</span></button>}
       {body}
       {hasBar && <div className="msg-bar" role="toolbar" aria-label="Message actions">
-        {actions.react && !item.deleted && QUICK.map(e => <button key={e} className={`msg-emoji ${mineEmoji === e ? 'on' : ''}`} onClick={() => { actions.react!(e); setOpen(false); }} aria-label={`React ${e}`}>{e}</button>)}
+        {actions.react && !item.deleted && quick.map(e => <button key={e} className={`msg-emoji ${mineEmoji === e ? 'on' : ''}`} onClick={() => { actions.react!(e); setOpen(false); }} aria-label={`React ${e}`}>{e}</button>)}
+        {onMoreReact && <button className="msg-act" onClick={() => { setOpen(false); onMoreReact(); }} aria-label="More reactions" title="Any emoji · change these"><Icon name="plus" size={15} /></button>}
         {actions.reply && <button className="msg-act" onClick={() => { actions.reply!(); setOpen(false); }} aria-label="Reply" title="Reply"><Icon name="reply" size={15} /></button>}
         {(actions.star || actions.edit || actions.deleteAll || actions.deleteMine) && <button className="msg-act" onClick={() => setMenu(m => !m)} aria-label="More" aria-expanded={menu} title="More"><Icon name="dots" size={16} /></button>}
         {menu && <div className="msg-menu" role="menu">
@@ -346,7 +356,7 @@ function Message({ starred, item, status, mine, showName, onReport, onDismiss, n
     </div>
     {Object.keys(groups).length > 0 && <div className="msg-reacts">{Object.entries(groups).map(([e, who]) => <button key={e} className={who.includes(myId) ? 'on' : ''} title={who.map(nameOf).join(', ')} onClick={() => actions.react?.(e)}>{e}{who.length > 1 && <span>{who.length}</span>}</button>)}</div>}
     {onReplyPrivately && !item.deleted && <button className="pm-reply tiny" onClick={onReplyPrivately}>Reply privately</button>}
-    <span className="tiny quiet" style={{ padding: '0 6px' }}>{item.failed ? <button className="rose" onClick={onDismiss}>Not sent · remove</button> : item.pending ? 'Sending…' : <span className="row" style={{ gap: 3, display: 'inline-flex', alignItems: 'center' }}>{starred && !item.deleted && <span className="msg-star" title="Starred"><Icon name="star" size={11} fill /></span>}{item.edited && !item.deleted && <span className="msg-edited">Edited ·</span>}{time(item.at)}{status && !item.deleted && <span title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} style={{ display: 'inline-flex', color: status === 'read' ? '#8EC5FF' : undefined }}><Icon name={status === 'sent' ? 'check' : 'checks'} size={14} stroke={2} /></span>}</span>}</span>
+    {(showTime || item.failed || item.pending || item.edited || starred) && <span className="tiny quiet msg-meta" style={{ padding: '0 6px' }}>{item.failed ? <button className="rose" onClick={onDismiss}>Not sent · remove</button> : item.pending ? 'Sending…' : <span className="row" style={{ gap: 3, display: 'inline-flex', alignItems: 'center' }}>{starred && !item.deleted && <span className="msg-star" title="Starred"><Icon name="star" size={11} fill /></span>}{item.edited && !item.deleted && <span className="msg-edited">{showTime ? 'Edited ·' : 'Edited'}</span>}{showTime && time(item.at)}{showTime && status && !item.deleted && <span title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} style={{ display: 'inline-flex', color: status === 'read' ? '#8EC5FF' : undefined }}><Icon name={status === 'sent' ? 'check' : 'checks'} size={14} stroke={2} /></span>}</span>}</span>}
   </div>;
 }
 

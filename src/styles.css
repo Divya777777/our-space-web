@@ -1181,3 +1181,31 @@ html[data-room-theme='kirakira'] .call-join-icon { background: #00B3A4; color: #
 .call-layer.ui-idle .call-controls { opacity: 0; transform: translateY(14px); pointer-events: none; }
 .composer > .emoji-suggest { position: absolute; bottom: calc(100% + 6px); left: 52px; margin: 0; z-index: 8; background: var(--glass-strong); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); box-shadow: var(--depth-near); }
 .emoji-pop, .attach-menu, .msg-menu { background: color-mix(in srgb, var(--glass-strong) 35%, #121728); }
+
+/* Bigger picture in the full-screen call: thinner margins, the bars sit closer to the edges. */
+.call-top { padding: 12px 18px; }
+.call-stage { padding: 4px 14px; gap: 10px; }
+.call-controls { padding: 10px 0 16px; }
+.call-stage.solo > .tile, .self-big { border-radius: 22px; }
+
+/* The message box stays at the bottom while the messages scroll above it. */
+.side-body:has(> .chat-drop) { overflow: hidden; }
+.chat-drop { min-height: 0; }
+.chat-drop > .chat { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -6px; padding: 0 6px 6px; scrollbar-width: thin; }
+.chat-drop > :not(.chat) { flex: none; }
+.call-chat-pop > .side-body { overflow: hidden; }
+.msg-meta { line-height: 1.2; }
+@media (max-width: 900px) {
+  .chat-drop > .chat { max-height: 62dvh; }
+}
+.emoji-pop.inline { position: static; width: 100%; height: 340px; box-shadow: none; animation: none; background: var(--glass-soft); }
+.quick-row { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.quick-slot { width: 44px; height: 44px; border-radius: 14px; font-size: 24px; display: grid; place-items: center; background: var(--glass-soft); border: 1px solid var(--edge); transition: transform .12s; }
+.quick-slot:hover { transform: scale(1.08); }
+.quick-slot.on { border-color: var(--lav); box-shadow: 0 0 0 3px var(--lav-soft); }
+/* Full screen: only the app — no side menu or bottom tabs. */
+html.app-full .shell { grid-template-columns: 1fr; }
+html.app-full .rail, html.app-full .tabbar { display: none; }
+html.app-full .room { padding-left: 18px; }
+.call-stage.solo > .tile:not(.tall), .call-stage > .tile.self-big { aspect-ratio: 16 / 9; }
+.chat-drop > .chat > * { flex-shrink: 0; }
