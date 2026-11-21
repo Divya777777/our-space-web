@@ -99,6 +99,24 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   }, [scroller, chat.loaded]);
   const jumpDown = (smooth = true) => { const el = scroller(); if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); setFresh(0); };
   const seenCount = useRef(0);
+  // Opening the chat (also the pop-up in a call) starts at the newest message; photos and voice notes that finish
+  // loading a moment later don't push it up, unless you've started scrolling yourself.
+  const touched = useRef(false);
+  useEffect(() => {
+    if (!chat.loaded) return;
+    touched.current = false;
+    const el = scroller(); if (!el) return;
+    const mark = () => { touched.current = true; };
+    el.addEventListener('wheel', mark, { passive: true }); el.addEventListener('touchmove', mark, { passive: true }); el.addEventListener('keydown', mark);
+    const pin = () => { if (!touched.current) el.scrollTop = el.scrollHeight; };
+    pin(); const raf = requestAnimationFrame(pin);
+    const timers = [80, 250, 600, 1200].map(ms => setTimeout(pin, ms));
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { if (!awayRef.current || !touched.current) pin(); }) : null;
+    Array.from(el.children).forEach(c => ro?.observe(c));
+    const stop = setTimeout(() => ro?.disconnect(), 3000);
+    return () => { cancelAnimationFrame(raf); timers.forEach(clearTimeout); clearTimeout(stop); ro?.disconnect(); el.removeEventListener('wheel', mark); el.removeEventListener('touchmove', mark); el.removeEventListener('keydown', mark); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.loaded, scroller]);
   useEffect(() => {
     const first = seenCount.current === 0; const added = items.length - seenCount.current; seenCount.current = items.length;
     const last = items[items.length - 1];
@@ -342,7 +360,8 @@ function Message({ quick = QUICK, onMoreReact, showTime = true, starred, item, s
       {body}
       {hasBar && <div className="msg-bar" role="toolbar" aria-label="Message actions">
         {actions.react && !item.deleted && quick.map(e => <button key={e} className={`msg-emoji ${mineEmoji === e ? 'on' : ''}`} onClick={() => { actions.react!(e); setOpen(false); }} aria-label={`React ${e}`}>{e}</button>)}
-        {onMoreReact && <button className="msg-act" onClick={() => { setOpen(false); onMoreReact(); }} aria-label="More reactions" title="Any emoji · change these"><Icon name="plus" size={15} /></button>}
+        {onMoreReact && <button className="msg-emoji msg-more-react" onClick={() => { setOpen(false); onMoreReact(); }} aria-label="React with any emoji" title="Any emoji · change these"><Icon name="plus" size={15} /></button>}
+        {actions.react && !item.deleted && <span className="msg-bar-sep" aria-hidden="true" />}
         {actions.reply && <button className="msg-act" onClick={() => { actions.reply!(); setOpen(false); }} aria-label="Reply" title="Reply"><Icon name="reply" size={15} /></button>}
         {(actions.star || actions.edit || actions.deleteAll || actions.deleteMine) && <button className="msg-act" onClick={() => setMenu(m => !m)} aria-label="More" aria-expanded={menu} title="More"><Icon name="dots" size={16} /></button>}
         {menu && <div className="msg-menu" role="menu">
@@ -354,9 +373,10 @@ function Message({ quick = QUICK, onMoreReact, showTime = true, starred, item, s
         </div>}
       </div>}
     </div>
+    {item.edited && !item.deleted && <span className="msg-edited-note"><Icon name="pencil" size={10} />This message was edited</span>}
     {Object.keys(groups).length > 0 && <div className="msg-reacts">{Object.entries(groups).map(([e, who]) => <button key={e} className={who.includes(myId) ? 'on' : ''} title={who.map(nameOf).join(', ')} onClick={() => actions.react?.(e)}>{e}{who.length > 1 && <span>{who.length}</span>}</button>)}</div>}
     {onReplyPrivately && !item.deleted && <button className="pm-reply tiny" onClick={onReplyPrivately}>Reply privately</button>}
-    {(showTime || item.failed || item.pending || item.edited || starred) && <span className="tiny quiet msg-meta" style={{ padding: '0 6px' }}>{item.failed ? <button className="rose" onClick={onDismiss}>Not sent · remove</button> : item.pending ? 'Sending…' : <span className="row" style={{ gap: 3, display: 'inline-flex', alignItems: 'center' }}>{starred && !item.deleted && <span className="msg-star" title="Starred"><Icon name="star" size={11} fill /></span>}{item.edited && !item.deleted && <span className="msg-edited">{showTime ? 'Edited ·' : 'Edited'}</span>}{showTime && time(item.at)}{showTime && status && !item.deleted && <span title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} style={{ display: 'inline-flex', color: status === 'read' ? '#8EC5FF' : undefined }}><Icon name={status === 'sent' ? 'check' : 'checks'} size={14} stroke={2} /></span>}</span>}</span>}
+    {(showTime || item.failed || item.pending || starred) && <span className="tiny quiet msg-meta" style={{ padding: '0 6px' }}>{item.failed ? <button className="rose" onClick={onDismiss}>Not sent · remove</button> : item.pending ? 'Sending…' : <span className="row" style={{ gap: 3, display: 'inline-flex', alignItems: 'center' }}>{starred && !item.deleted && <span className="msg-star" title="Starred"><Icon name="star" size={11} fill /></span>}{showTime && time(item.at)}{showTime && status && !item.deleted && <span title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} style={{ display: 'inline-flex', color: status === 'read' ? '#8EC5FF' : undefined }}><Icon name={status === 'sent' ? 'check' : 'checks'} size={14} stroke={2} /></span>}</span>}</span>}
   </div>;
 }
 

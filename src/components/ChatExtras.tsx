@@ -130,18 +130,24 @@ export const clockOf = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor
 export const isVoice = (i: ChatItem) => !!i.file && i.file.mime.startsWith('audio/');
 
 /** A voice message bubble: play / pause, a progress bar and the length. */
+const RATES = [1, 1.5, 2, 0.75];
 export function VoiceBubble({ url, mine }: { url: string; mine: boolean }) {
   const a = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [t, setT] = useState(0); const [d, setD] = useState(0);
   // Chrome's recordings don't say how long they are until the end is reached once: jump there quietly to find out.
   const probing = useRef(false);
+  // Playback speed, like WhatsApp: tap to go 1× → 1.5× → 2× → 0.75×; your last choice is remembered.
+  const [rate, setRate] = useState(() => { try { return Number(localStorage.getItem('ourspace.voiceRate')) || 1; } catch { return 1; } });
+  useEffect(() => { if (a.current) a.current.playbackRate = rate; }, [rate, url]);
+  const nextRate = () => { const r = RATES[(RATES.indexOf(rate) + 1) % RATES.length]; setRate(r); try { localStorage.setItem('ourspace.voiceRate', String(r)); } catch { /* fine */ } };
   return <div className={`bubble voice ${mine ? 'me' : ''}`}>
     <audio ref={a} src={url || undefined} preload="metadata" onLoadedMetadata={e => { const el = e.currentTarget; if (Number.isFinite(el.duration)) setD(el.duration); else { probing.current = true; el.currentTime = 1e7; } }} onDurationChange={e => { const x = e.currentTarget.duration; if (Number.isFinite(x)) setD(x); }}
-      onTimeUpdate={e => { const el = e.currentTarget; if (probing.current) { if (Number.isFinite(el.duration)) { probing.current = false; setD(el.duration); el.currentTime = 0; } return; } setT(el.currentTime); }} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setT(0); }} />
+      onTimeUpdate={e => { const el = e.currentTarget; if (probing.current) { if (Number.isFinite(el.duration)) { probing.current = false; setD(el.duration); el.currentTime = 0; } return; } setT(el.currentTime); }} onPlay={e => { e.currentTarget.playbackRate = rate; setPlaying(true); }} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setT(0); }} />
     <button className="voice-play" onClick={() => { const el = a.current; if (!el) return; if (el.paused) void el.play(); else el.pause(); }} aria-label={playing ? 'Pause' : 'Play voice message'}><Icon name={playing ? 'pause' : 'play'} size={16} /></button>
     <input className="voice-bar" type="range" min={0} max={d || 1} step={0.05} value={t} onChange={e => { if (a.current) a.current.currentTime = Number(e.target.value); setT(Number(e.target.value)); }} aria-label="Position" style={{ '--p': `${d ? (t / d) * 100 : 0}%` } as React.CSSProperties} />
     <span className="tiny voice-time">{clockOf(playing || t ? t : d)}</span>
+    <button className="voice-rate" onClick={nextRate} aria-label={`Playback speed ${rate}×, tap to change`} title="Playback speed">{rate}×</button>
   </div>;
 }
 
