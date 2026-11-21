@@ -209,6 +209,13 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   let lastDay = ''; let lastFrom = '';
   return <div className={`col chat-drop ${dropping ? 'dropping' : ''}`} style={{ flex: 1, minHeight: 0, gap: 0 }} {...dragProps}>
     {dropping && <div className="drop-hint" aria-hidden="true"><Icon name="paperclip" size={22} />Drop to add</div>}
+    {!compact && <div className="chat-presence chat-head">
+        {solo ? <><span className="presence-av"><Avatar name={solo.name} size={28} />{online.has(solo.id) && <i className="online-dot" />}</span><span className="small" style={{ fontWeight: 600 }}>{firstName(solo.name)}</span><span className="tiny muted">{online.has(solo.id) ? 'Online' : room.lastSeen?.[solo.id] ? `Last seen ${ago(room.lastSeen[solo.id])}` : 'Offline'}</span></>
+          : <><span className="presence-av"><Avatar name={room.name} size={28} /></span><span className="small" style={{ fontWeight: 600 }}>{room.name}</span><span className="tiny muted">{room.members.length} people · {online.size ? `${online.size} online` : 'nobody else online'}</span></>}
+        <span className="grow" />
+        <IconButton size="sm" variant="plain" icon="image" label="Media: photos, files and voice messages" onClick={() => setSheet('media')} />
+        <IconButton size="sm" variant="plain" icon="star" label="Starred messages" onClick={() => setSheet('starred')} />
+      </div>}
     <div className="chat" ref={list}>
       <p className="tiny quiet row gap-8" style={{ justifyContent: 'center', padding: '4px 0 10px', textAlign: 'center' }}><Icon name="lock" size={13} />Private. Only people in this room can read it. History stays in this browser.</p>
       {!hideLink && !compact && <div className="link-cta-wrap"><button className="link-cta" onClick={() => setLinking(true)}>
@@ -216,13 +223,6 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
         <span className="grow"><span className="small" style={{ fontWeight: 600, display: 'block' }}>Bring older chats from your phone</span><span className="tiny muted">Scan a QR code with Our Space on your phone</span></span>
       </button>
         <button className="link-cta-x" aria-label="Hide this (you can find it under You)" title="Hide (it stays under You)" onClick={() => { setHideLink(true); try { localStorage.setItem('ourspace.hideLinkCta', '1'); } catch { /* fine */ } }}><Icon name="x" size={14} /></button></div>}
-      {!compact && <div className="chat-presence">
-        {solo ? <><span className="presence-av"><Avatar name={solo.name} size={28} />{online.has(solo.id) && <i className="online-dot" />}</span><span className="small" style={{ fontWeight: 600 }}>{firstName(solo.name)}</span><span className="tiny muted">{online.has(solo.id) ? 'Online' : room.lastSeen?.[solo.id] ? `Last seen ${ago(room.lastSeen[solo.id])}` : 'Offline'}</span></>
-          : <span className="tiny muted">{online.size ? `${online.size} online` : 'Nobody else online'}</span>}
-        <span className="grow" />
-        <IconButton size="sm" variant="plain" icon="image" label="Media: photos, files and voice messages" onClick={() => setSheet('media')} />
-        <IconButton size="sm" variant="plain" icon="star" label="Starred messages" onClick={() => setSheet('starred')} />
-      </div>}
       {!chat.loaded && <p className="small muted">Loading messages…</p>}
       {chat.loaded && !items.length && <div className="col gap-8" style={{ alignItems: 'center', textAlign: 'center', padding: '40px 12px' }}><Icon name="chat" size={28} /><p className="h3">Say hi</p><p className="small muted">Messages, photos and files up to 16 MB. Drop a file here to add it.</p></div>}
       {items.map((i, k) => {
