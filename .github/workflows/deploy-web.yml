@@ -37,6 +37,7 @@ jobs:
           VITE_EXTENSION_URL: ${{ vars.VITE_EXTENSION_URL }}
           VITE_EXTENSION_ID: ${{ vars.VITE_EXTENSION_ID }}
           VITE_FIREFOX_EXTENSION_URL: ${{ vars.VITE_FIREFOX_EXTENSION_URL }}
+          VITE_GIPHY_KEY: ${{ vars.VITE_GIPHY_KEY }}
       # GitHub Pages has no rewrites: serve the app for every path (room links, /join?code=…).
       - run: cp dist/index.html dist/404.html && touch dist/.nojekyll
       # SEO: save the rendered front page into index.html (Google, Bing and link previews read real text), add FAQ

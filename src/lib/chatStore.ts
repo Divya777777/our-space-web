@@ -5,7 +5,7 @@ import { localKey, openLocal, sealLocal } from './e2e';
 export type ChatFile = { key: string; name: string; mime: string; size: number; w?: number; h?: number };
 export type ChatItem = { id: string; from: string; name: string; at: number; kind: 'text' | 'image' | 'file'; /** Private message: who it was sent to. */ to?: string[]; text?: string; file?: ChatFile; pending?: boolean; failed?: boolean;
   edited?: boolean; /** Deleted for everyone by the sender. */ deleted?: boolean; /** userId -> emoji */ reactions?: Record<string, string>; re?: { id: string; name: string; text: string } };
-export type ChatState = { acks?: number[]; cursor: number; items: ChatItem[]; parts?: Record<string, { keys: string[]; at: number }>; /** Messages deleted on this device only (they stay for everyone else). */ hidden?: string[] };
+export type ChatState = { acks?: number[]; cursor: number; items: ChatItem[]; parts?: Record<string, { keys: string[]; at: number }>; /** Messages deleted on this device only (they stay for everyone else). */ hidden?: string[]; /** Starred on this device. */ starred?: string[] };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 function db(): Promise<IDBDatabase> {
@@ -44,7 +44,7 @@ export function saveChat(userId: string, code: string, state: ChatState): Promis
   return operation.finally(() => { if (writes.get(key) === operation) writes.delete(key); });
 }
 async function writeChat(userId: string, code: string, state: ChatState) {
-  const body = { acks: state.acks || [], hidden: state.hidden || [], cursor: state.cursor, items: state.items.map(i => i.pending ? { ...i, pending: false, failed: true } : i), ...(state.parts && Object.keys(state.parts).length ? { parts: state.parts } : {}) };
+  const body = { acks: state.acks || [], hidden: state.hidden || [], ...(state.starred?.length ? { starred: state.starred } : {}), cursor: state.cursor, items: state.items.map(i => i.pending ? { ...i, pending: false, failed: true } : i), ...(state.parts && Object.keys(state.parts).length ? { parts: state.parts } : {}) };
   const sealed = sealLocal(strToU8(JSON.stringify(body)), localKey(userId));
   await run('history', 'readwrite', s => s.put(sealed, roomKey(userId, code)));
 }

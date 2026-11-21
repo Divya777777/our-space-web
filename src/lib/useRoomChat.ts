@@ -61,7 +61,7 @@ export function useRoomChat(room: Room | undefined) {
         if (!alive) return;
         const pending = ref.current.items.filter(i => i.pending || i.failed);
         const hidden = new Set([...(saved.hidden || []), ...(ref.current.hidden || [])]);
-        const next = { ...saved, hidden: [...hidden], cursor: Math.max(saved.cursor, ref.current.cursor), items: [...saved.items.filter(i => !hidden.has(i.id)), ...pending.filter(p => !saved.items.some(i => i.id === p.id))].sort((a, b) => a.at - b.at) };
+        const next = { ...saved, starred: [...new Set([...(saved.starred || []), ...(ref.current.starred || [])])], hidden: [...hidden], cursor: Math.max(saved.cursor, ref.current.cursor), items: [...saved.items.filter(i => !hidden.has(i.id)), ...pending.filter(p => !saved.items.some(i => i.id === p.id))].sort((a, b) => a.at - b.at) };
         ref.current = next; setState(next);
       });
     };
@@ -223,8 +223,10 @@ export function useRoomChat(room: Room | undefined) {
     if (item?.file?.key) void removeFile(item.file.key);
     commit({ ...ref.current, hidden: [...(ref.current.hidden || []), id].slice(-2000), items: ref.current.items.filter(i => i.id !== id) });
   }
+  /** Star / unstar a message (kept on this device only). */
+  function toggleStar(id: string) { const s = new Set(ref.current.starred || []); if (s.has(id)) s.delete(id); else s.add(id); commit({ ...ref.current, starred: [...s].slice(-1000) }); }
   useEffect(() => { if (loaded) tell('d'); }, [loaded, tell]);
-  return { editMessage, deleteForEveryone, react, items: state.items, cursor: state.cursor, loaded, sendText, sendFile, waitingForKeys, dismiss, deleteForMe, unreadable, markRead };
+  return { starred: state.starred || [], toggleStar, editMessage, deleteForEveryone, react, items: state.items, cursor: state.cursor, loaded, sendText, sendFile, waitingForKeys, dismiss, deleteForMe, unreadable, markRead };
 }
 
 type Op = { op: 'edit' | 'del' | 'react'; ref: string; from: string; text?: string; emoji?: string };

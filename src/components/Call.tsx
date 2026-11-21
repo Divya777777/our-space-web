@@ -38,10 +38,12 @@ type Controls = { activeCode?: string; activeId?: string; liveWith: number; phas
   /** Collapse the call into the room (or picture-in-picture), e.g. while watching on another site. */ minimize: () => void;
   /** Float the call above other apps now (call from a click). Safari / older Firefox: the other person's video. */ floatCall: () => Promise<boolean>; canFloat: boolean;
   /** For the room header: the call's own controls live there, so no pop-up covers the page. */ muted: boolean; toggleMute: () => void; hangup: () => void; status: string;
-  /** The room page showing the call's controls in its header (then the floating pill hides). */ setDocked: (code: string | null) => void };
+  /** The room page showing the call's controls in its header (then the floating pill hides). */ setDocked: (code: string | null) => void;
+  /** Chat over the full-screen call: the room page that can show it says so (`setChatRoom`), the call shows a chat button. */
+  layerOpen: boolean; chatOpen: boolean; setChatOpen: (open: boolean) => void; setChatRoom: (code: string | null) => void };
 const partyListeners = new Set<PartyListener>();
 export type Face = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; self?: boolean };
-const CallContext = createContext<Controls>({ faces: [], cameraOff: true, toggleCamera: () => {}, video: false, setInGame: () => {}, liveWith: 0, phase: 'idle', start: () => {}, join: () => {}, open: () => {}, sendParty: () => 0, onParty: () => () => {}, minimize: () => {}, floatCall: async () => false, canFloat: false, muted: false, toggleMute: () => {}, hangup: () => {}, status: '', setDocked: () => {} });
+const CallContext = createContext<Controls>({ layerOpen: false, chatOpen: false, setChatOpen: () => {}, setChatRoom: () => {}, faces: [], cameraOff: true, toggleCamera: () => {}, video: false, setInGame: () => {}, liveWith: 0, phase: 'idle', start: () => {}, join: () => {}, open: () => {}, sendParty: () => 0, onParty: () => () => {}, minimize: () => {}, floatCall: async () => false, canFloat: false, muted: false, toggleMute: () => {}, hangup: () => {}, status: '', setDocked: () => {} });
 export const useCall = () => useContext(CallContext);
 /** Microphone settings. `exact` when the person just picked it (fail loudly); `ideal` at call start (fall back quietly). */
 function micConstraints(id: string, exact: boolean): MediaTrackConstraints {
@@ -144,6 +146,11 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   const screen = useRef<{ video: MediaStreamTrack; display: MediaStream; kind: ShareKind; mix?: Mix } | null>(null);
   const [sharing, setSharing] = useState<null | { sound: boolean; preview: MediaStream }>(null);
   const [shareMenu, setShareMenu] = useState(false);
+  const [chatRoom, setChatRoom] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  // Full-screen call: the top bar and buttons fade away after a few still seconds and come back on any mouse move or touch.
+  const [uiIdle, setUiIdle] = useState(false);
+  const overUi = useRef(false);
   useEffect(() => { if (!call) setShareMenu(false); }, [call]);
   const tone = useRef<{ stop: () => void } | null>(null);
   /** False when only the public address servers answered: calls through strict networks then can't connect. */
@@ -807,6 +814,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     {connected && call?.video && <IconButton size="lg" icon={cameraOff ? 'videoOff' : 'video'} variant={cameraOff ? 'on' : undefined} label={cameraOff ? 'Turn camera on' : 'Turn camera off'} disabled={busy} onClick={() => void toggleCamera()} />}
     {connected && canShare && <IconButton size="lg" icon="screen" variant={sharing ? 'end' : undefined} label={sharing ? 'Stop presenting' : 'Share your screen'} aria-haspopup={sharing ? undefined : 'dialog'} aria-expanded={sharing ? undefined : shareMenu} onClick={() => { if (sharing) stopShare(); else setShareMenu(true); }} />}
     {connected && <IconButton size="lg" icon="sliders" label="Audio: choose microphone and speaker" onClick={() => setAudioSheet(true)} />}
+    {connected && call && chatRoom === call.code && <IconButton size="lg" icon="chat" variant={chatOpen ? 'on' : undefined} label={chatOpen ? 'Close the chat' : 'Open the chat'} onClick={() => setChatOpen(o => !o)} />}
     {connected && call && <IconButton size="lg" icon="game" label="Play a game, the call continues" onClick={() => { setExpanded(false); nav(`/room/${call.code}?tab=play`); }} />}
     <IconButton size="lg" icon="hangup" variant="end" label={connected ? 'End call' : 'Cancel call'} onClick={() => finish()} />
   </>;
@@ -816,7 +824,17 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   // The full call view. When it closes (minimised, floated or the call ends) the last picture of it stays for a
   // moment and fades out, instead of vanishing. Same place in the tree, so the videos are not restarted.
   const layerShown = !!call && phase !== 'incoming' && expanded && !inPip;
-  const layerEl = layerShown && call ? <div className="call-layer" role="dialog" aria-label={`Call · ${call.title}`}>
+  useEffect(() => {
+    setUiIdle(false);
+    if (!layerShown || !connected) return;
+    let t: ReturnType<typeof setTimeout>;
+    const wake = () => { setUiIdle(false); clearTimeout(t); t = setTimeout(() => { if (!overUi.current && !document.querySelector('.scrim')) setUiIdle(true); else wake(); }, 3000); };
+    wake();
+    const evs = ['mousemove', 'pointerdown', 'touchstart', 'keydown', 'wheel'] as const;
+    evs.forEach(e => window.addEventListener(e, wake, { passive: true }));
+    return () => { clearTimeout(t); evs.forEach(e => window.removeEventListener(e, wake)); };
+  }, [layerShown, connected]);
+  const layerEl = layerShown && call ? <div className={`call-layer${uiIdle ? ' ui-idle' : ''}`} role="dialog" aria-label={`Call · ${call.title}`}>
       <div className="call-top">
         <IconButton icon="down" label="Back to the room, the call continues" onClick={() => setExpanded(false)} />
         {!pip.supported && canFloat && <IconButton icon="pip" label="Float the call over other apps" onClick={() => void floatCall()} />}
@@ -838,7 +856,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
             : (sharing || (local && !cameraOff)) && <button className={`tile self-tile swap${sharing ? ' screen' : ''}`} onClick={() => { if (connected && others.length === 1) setSelfBig(true); }} aria-label="Make your picture big" title={others.length === 1 ? 'Make this the big picture' : undefined}>{me}</button>}
         </>;
       })()}
-      <div className="call-controls"><div className="glass">{controls}</div></div>
+      <div className="call-controls" onPointerEnter={() => { overUi.current = true; }} onPointerLeave={() => { overUi.current = false; }}><div className="glass">{controls}</div></div>
     </div> : null;
   const lastLayer = useRef<React.ReactElement | null>(null);
   const [ghost, setGhost] = useState<React.ReactElement | null>(null);
@@ -857,7 +875,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
     document.documentElement.dataset.callOpen = '';
     return () => { delete document.documentElement.dataset.callOpen; };
   }, [layerShown]);
-  return <VoiceContext.Provider value={voices}><CallContext.Provider value={{ faces: connected ? [{ id: SELF, name: space.user.name, stream: local, cameraOff, muted, self: true }, ...others.map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted }))] : [], cameraOff, toggleCamera: () => { void toggleCamera(); }, video: !!call?.video, setInGame, activeCode: call?.code, activeId: call?.id, join: (c, l) => { void join(c, l); }, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false), floatCall, canFloat, muted, toggleMute, hangup: () => finish(), status, setDocked }}>
+  return <VoiceContext.Provider value={voices}><CallContext.Provider value={{ faces: connected ? [{ id: SELF, name: space.user.name, stream: local, cameraOff, muted, self: true }, ...others.map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted }))] : [], cameraOff, toggleCamera: () => { void toggleCamera(); }, video: !!call?.video, setInGame, activeCode: call?.code, activeId: call?.id, join: (c, l) => { void join(c, l); }, phase, liveWith: connected ? peerList.filter(p => p.state === 'connected').length : 0, start: (c, m, v, t) => { void start(c, m, v, t); }, open: () => setExpanded(true), sendParty, onParty, minimize: () => setExpanded(false), floatCall, canFloat, muted, toggleMute, hangup: () => finish(), status, setDocked, layerOpen: layerShown, chatOpen: chatOpen && !!call && chatRoom === call.code && layerShown, setChatOpen, setChatRoom }}>
     {call && <video ref={floatSrc} className="float-src" muted playsInline autoPlay aria-hidden="true" />}
     {children}
     {peerList.map(p => <RemoteAudio key={p.id} stream={p.stream} sinkId={speakerId} />)}

@@ -64,6 +64,16 @@ export default function RoomPage() {
   const [seenChat, setSeenChat] = useState(0);
   useEffect(() => { if (tab === 'chat') setSeenChat(chat.items.length); }, [tab, chat.items.length]);
   const unread = tab !== 'chat' && chat.items.slice(seenChat).some(i => i.from !== space.user.id);
+  // Chat over a full-screen video call: this room offers it, and a new message from someone else pops it open.
+  const roomCode = room?.code;
+  const { setChatRoom, setChatOpen } = call;
+  useEffect(() => { if (!roomCode) return; setChatRoom(roomCode); return () => setChatRoom(null); }, [roomCode, setChatRoom]);
+  const lastSeenCount = useRef(chat.items.length);
+  useEffect(() => {
+    const n = chat.items.length; const fresh = chat.items.slice(lastSeenCount.current); lastSeenCount.current = n;
+    if (call.layerOpen && call.activeCode === roomCode && fresh.some(i => i.from !== space.user.id)) setChatOpen(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.items.length]);
 
   // Live updates: a long poll that returns as soon as anything in the room changes.
   useEffect(() => {
@@ -273,7 +283,11 @@ export default function RoomPage() {
     <WorldPerch theme={theme} />
   </div>;
 
-  return <div className="room">
+  const callChat = call.chatOpen && call.activeCode === room.code ? createPortal(<div className="call-chat-pop" role="dialog" aria-label="Chat">
+    <div className="call-chat-head"><Icon name="chat" size={16} /><span className="small grow" style={{ fontWeight: 600 }}>Chat · {room.name}</span><IconButton size="sm" variant="plain" icon="x" label="Close the chat" onClick={() => setChatOpen(false)} /></div>
+    <div className="side-body"><ChatPanel room={room} chat={chat} compact onReport={() => { setChatOpen(false); call.minimize(); setTab('people'); }} /></div>
+  </div>, document.body) : null;
+  return <div className="room">{callChat}
     <RoomThemeLayer theme={theme} />
     <WorldLayer theme={theme} hasVideo={!!gate.playback} playing={!!gate.playback?.playing} members={room.members.length} chatCount={chat.items.length} lastMine={chat.items[chat.items.length - 1]?.from === space.user.id} />
     {pb && <div className="ambient" aria-hidden="true"><img key={pb.videoId} src={`https://i.ytimg.com/vi/${pb.videoId}/mqdefault.jpg`} alt="" /></div>}
