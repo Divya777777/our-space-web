@@ -50,7 +50,8 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [error, setError] = useState('');
-  const [syncedFor, setSyncedFor] = useState<Account | null>(null);
+  // Which user's rooms are loaded (by id: saving your name makes a new account object for the same person).
+  const [syncedFor, setSyncedFor] = useState<string | null>(null);
   const [waking, setWaking] = useState(false);
   const [needsName, setNeedsName] = useState(false);
   const [serverPlan, setServerPlan] = useState<PlanInfo | null>(null);
@@ -93,12 +94,12 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
     if (!account) return;
     let alive = true; let fresh = false;
     const cacheKey = `ourspace.cache.v1.${account.user.id}`;
-    try { const raw = localStorage.getItem(cacheKey); if (raw) { const c = JSON.parse(raw); setRooms(c.rooms); setPlaylists(c.playlists); setSyncedFor(account); } } catch { /* no cache */ }
+    try { const raw = localStorage.getItem(cacheKey); if (raw) { const c = JSON.parse(raw); setRooms(c.rooms); setPlaylists(c.playlists); setSyncedFor(account.user.id); } } catch { /* no cache */ }
     const slow = setTimeout(() => { if (alive && !fresh) setWaking(true); }, 4000);
     Promise.all([request<Room[]>('/rooms'), request<Playlist[]>('/playlists')])
       .then(([r, p]) => { if (!alive) return; fresh = true; setRooms(r); setPlaylists(p); setError(''); try { localStorage.setItem(cacheKey, JSON.stringify({ rooms: r, playlists: p })); } catch { /* full */ } })
       .catch((e: Error) => { if (alive) setError(e.message); })
-      .finally(() => { clearTimeout(slow); if (alive) { setSyncedFor(account); setWaking(false); } });
+      .finally(() => { clearTimeout(slow); if (alive) { setSyncedFor(account.user.id); setWaking(false); } });
     void loadPlan();
     // Publish this browser's own chat key (never replaces the phone's key).
     const me = loadIdentity(account.user.id);
@@ -123,7 +124,7 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
   }
 
   const value: Space = {
-    ready: true, synced: !account || syncedFor === account, signedIn: !!account, waking, error,
+    ready: true, synced: !account || syncedFor === account.user.id, signedIn: !!account, waking, error,
     user: account?.user || nobody, rooms, playlists, needsName, api,
     plan: { plan: serverPlan?.plan || 'free', limits: serverPlan ? serverPlan.limits : FREE_LIMITS, usage: { rooms: rooms.filter(r => r.hostId === account?.user.id).length, personalPlaylists: playlists.filter(p => p.scope === 'personal').length } },
     async signInWithGoogle(credential) {
