@@ -84,7 +84,8 @@ export function CameraSheet({ onShot, onClose }: { onShot: (f: File) => void; on
 
 /* ───────── Voice messages ───────── */
 export function pickAudioType() {
-  const t = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm'];
+  // MP4/AAC first: iPhones can't play WebM voice notes. Chrome, Edge and Safari record MP4; Firefox falls back to WebM.
+  const t = ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'];
   return typeof MediaRecorder !== 'undefined' ? t.find(x => MediaRecorder.isTypeSupported?.(x)) || '' : '';
 }
 export function useVoiceRecorder(onDone: (f: File) => void, onError: (m: string) => void) {
