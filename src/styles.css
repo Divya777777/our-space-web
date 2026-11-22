@@ -1218,3 +1218,29 @@ html.app-full .room { padding-left: 18px; }
 /* Who you're chatting with stays at the top while the messages scroll. */
 .chat-presence.chat-head { flex: none; margin: 0 0 8px; padding: 0 2px 10px; }
 .chat-head .small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+
+/* ───────── Chat header: room chat or a private chat with one person ───────── */
+.chat-head { position: relative; }
+.chat-head.private { border-bottom-color: rgba(230, 201, 148, .4); }
+.chat-head.compact { padding-top: 2px; }
+.convo-btn { display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 70%; padding: 3px 8px 3px 3px; margin-left: -3px; border-radius: 14px; text-align: left; color: var(--text); }
+.convo-btn:hover { background: var(--glass-soft); }
+.convo-text { display: flex; flex-direction: column; min-width: 0; }
+.convo-title { display: inline-flex; align-items: center; gap: 5px; font-size: 14.5px; font-weight: 600; white-space: nowrap; }
+.convo-title svg:first-child { color: #E6C994; }
+.convo-title svg:last-of-type { color: var(--lav); }
+.convo-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--lav); color: var(--lav-ink); font-size: 10.5px; font-weight: 800; display: inline-grid; place-items: center; }
+.convo-menu { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20; max-height: min(420px, 60vh); overflow-y: auto; padding: 6px; border-radius: 18px; background: color-mix(in srgb, var(--glass-strong) 35%, #121728); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); border: 1px solid var(--edge); box-shadow: var(--depth); display: flex; flex-direction: column; gap: 2px; animation: rise .16s var(--ease); }
+.convo-menu > button { display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 13px; text-align: left; color: var(--text); }
+.convo-menu > button:hover { background: var(--glass-soft); }
+.convo-menu > button.on { background: var(--lav-soft); }
+.convo-menu > button b { display: block; font-size: 14px; font-weight: 600; }
+.convo-menu > button > svg { color: var(--lav); flex: none; }
+.convo-sec { padding: 10px 10px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.convo-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+.convo-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px 6px; font-size: 12px; color: #E6C994; }
+.pm-note { display: flex; align-items: center; gap: 9px; margin: 0 0 8px; padding: 9px 12px; border-radius: 14px; background: rgba(230, 201, 148, .1); border: 1px solid rgba(230, 201, 148, .35); color: var(--text); font-size: 13.5px; text-align: left; flex: none; animation: rise .2s var(--ease); }
+.pm-note > svg { color: #E6C994; flex: none; }
+.pm-note:hover { background: rgba(230, 201, 148, .16); }
+.pm-note-open { color: var(--lav); font-weight: 700; font-size: 13px; }
+.pm-banner { display: flex; align-items: center; justify-content: center; gap: 7px; align-self: center; margin: 4px 0 10px; padding: 6px 12px; border-radius: 999px; background: rgba(230, 201, 148, .1); color: #E6C994; font-size: 12.5px; }

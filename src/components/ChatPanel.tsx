@@ -51,7 +51,7 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   const [hideLink, setHideLink] = useState(() => { try { return localStorage.getItem('ourspace.hideLinkCta') === '1'; } catch { return false; } });
   const end = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const items = chat.items.filter(i => !isBlockedId(blocked, i.from));
+  const allItems = chat.items.filter(i => !isBlockedId(blocked, i.from));
   // Keep the newest message in view inside the panel (never scroll the whole page).
   // Seen ticks for the others: only while this tab is visible and focused.
   const { markRead, cursor } = chat;
@@ -66,11 +66,57 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   const allBlocked = others.length > 0 && others.every(id => isBlockedId(blocked, id));
   // Group rooms (3 or more people): send a message privately to one person, like Google Meet.
   const canPrivate = others.length >= 2;
+  // Which chat is open: the room chat (everyone) or a private chat with one person, picked from the header.
   const [privateTo, setPrivateTo] = useState<string | null>(null);
   const reachable = room.members.filter(m => m.id !== space.user.id && !isBlockedId(blocked, m.id));
   useEffect(() => { if (privateTo && !reachable.some(m => m.id === privateTo)) setPrivateTo(null); }, [privateTo, reachable]);
   const privateName = privateTo ? firstName(room.members.find(m => m.id === privateTo)?.name || '') : '';
   const pmTo = canPrivate && privateTo ? [privateTo] : undefined;
+  const me = space.user.id;
+  const inConvo = (i: ChatItem, c: string | null) => c ? !!i.to?.length && ((i.from === me && i.to.includes(c)) || (i.from === c && i.to.includes(me))) : !i.to?.length;
+  const items = canPrivate ? allItems.filter(i => inConvo(i, pmTo ? privateTo : null)) : allItems;
+  // Unread per chat ('' = room chat), counted from when you last looked at it in this browser.
+  const seenKey = `ourspace.chatSeen.${room.code}`;
+  const [seenAt, setSeenAt] = useState<Record<string, number>>(() => { try { const v = localStorage.getItem(seenKey); if (v) return JSON.parse(v); } catch { /* fine */ } return { '': Date.now(), first: Date.now() }; });
+  const looking = pmTo ? privateTo! : '';
+  useEffect(() => {
+    const last = allItems.length ? allItems[allItems.length - 1].at : 0;
+    if ((seenAt[looking] || 0) >= last || document.visibilityState !== 'visible') return;
+    const next = { ...seenAt, [looking]: Date.now() }; setSeenAt(next); try { localStorage.setItem(seenKey, JSON.stringify(next)); } catch { /* fine */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [looking, allItems.length]);
+  const unread: Record<string, number> = {};
+  const previews: Record<string, string> = {};
+  if (canPrivate) for (const i of allItems) {
+    if (i.deleted) continue;
+    const other = i.to?.length ? (i.from === me ? i.to[0] : i.to.includes(me) ? i.from : null) : '';
+    if (other && i.to?.length) { const t = i.text || (i.kind === 'image' ? '📷 Photo' : i.file?.mime.startsWith('audio/') ? '🎤 Voice message' : `📎 ${i.file?.name || 'File'}`); previews[other] = i.from === me ? `You: ${t}` : t; }
+    if (i.from === me || other === null || i.at <= (seenAt[other] ?? seenAt.first ?? 0)) continue;
+    unread[other] = (unread[other] || 0) + 1;
+  }
+  const elsewhere = Object.entries(unread).filter(([k]) => k !== looking).reduce((n, [, v]) => n + v, 0);
+  const [picker, setPicker] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!picker) return;
+    const away = (e: PointerEvent) => { if (!pickerRef.current?.contains(e.target as Node)) setPicker(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setPicker(false); };
+    document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
+  }, [picker]);
+  // A private message for a chat you're not looking at: a bar you can click to open it.
+  const [pmNote, setPmNote] = useState<{ id: string; name: string } | null>(null);
+  const noteCount = useRef(allItems.length);
+  useEffect(() => {
+    const fresh = allItems.slice(noteCount.current); noteCount.current = allItems.length;
+    if (!canPrivate) return;
+    const hit = [...fresh].reverse().find(i => i.from !== me && i.to?.includes(me) && i.from !== (pmTo ? privateTo : null) && !i.deleted);
+    if (!hit) return;
+    setPmNote({ id: hit.from, name: firstName(hit.name) });
+    const t = setTimeout(() => setPmNote(null), 7000); return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allItems.length]);
+  const openConvo = (c: string | null) => { setPrivateTo(c); setPicker(false); setPmNote(null); setReplyTo(null); setTimeout(() => { const el = list.current; if (el) el.scrollTop = el.scrollHeight; }, 30); };
   // Photos and files wait in a tray above the message box (like WhatsApp) until Send is pressed.
   const [staged, setStaged] = useState<{ id: string; file: File; url: string }[]>([]);
   const stage = (files: File[]) => {
@@ -209,16 +255,38 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   let lastDay = ''; let lastFrom = '';
   return <div className={`col chat-drop ${dropping ? 'dropping' : ''}`} style={{ flex: 1, minHeight: 0, gap: 0 }} {...dragProps}>
     {dropping && <div className="drop-hint" aria-hidden="true"><Icon name="paperclip" size={22} />Drop to add</div>}
-    {!compact && <div className="chat-presence chat-head">
-        {solo ? <><span className="presence-av"><Avatar name={solo.name} size={28} />{online.has(solo.id) && <i className="online-dot" />}</span><span className="small" style={{ fontWeight: 600 }}>{firstName(solo.name)}</span><span className="tiny muted">{online.has(solo.id) ? 'Online' : room.lastSeen?.[solo.id] ? `Last seen ${ago(room.lastSeen[solo.id])}` : 'Offline'}</span></>
-          : <><span className="presence-av"><Avatar name={room.name} size={28} /></span><span className="small" style={{ fontWeight: 600 }}>{room.name}</span><span className="tiny muted">{room.members.length} people · {online.size ? `${online.size} online` : 'nobody else online'}</span></>}
+    <div className={`chat-presence chat-head${pmTo ? ' private' : ''}${compact ? ' compact' : ''}`} ref={pickerRef}>
+        {canPrivate ? <button className="convo-btn" aria-haspopup="listbox" aria-expanded={picker} aria-label={`${pmTo ? `Private chat with ${privateName}` : 'Room chat'}. Choose who to chat with`} onClick={() => setPicker(p => !p)}>
+          <span className="presence-av">{pmTo ? <><Avatar name={room.members.find(m => m.id === privateTo)?.name || ''} size={30} />{online.has(privateTo!) && <i className="online-dot" />}</> : <Avatar name={room.name} size={30} />}</span>
+          <span className="convo-text">
+            <span className="convo-title">{pmTo && <Icon name="lock" size={12} />}{pmTo ? privateName : 'Room chat'}<Icon name="down" size={14} />{elsewhere > 0 && <span className="convo-badge">{elsewhere > 99 ? '99+' : elsewhere}</span>}</span>
+            <span className="tiny muted">{pmTo ? <><span style={{ color: 'var(--gold, #E6C994)' }}>Private</span> · {online.has(privateTo!) ? <span style={{ color: '#3DD68C' }}>Online</span> : room.lastSeen?.[privateTo!] ? `Last seen ${ago(room.lastSeen[privateTo!])}` : 'Offline'}</> : <>{room.name} · {room.members.length} people · {online.size ? <span style={{ color: '#3DD68C' }}>{online.size} online</span> : 'nobody else online'}</>}</span>
+          </span>
+        </button>
+        : solo ? <><span className="presence-av"><Avatar name={solo.name} size={28} />{online.has(solo.id) && <i className="online-dot" />}</span><span className="small" style={{ fontWeight: 600 }}>{firstName(solo.name)}</span><span className="tiny muted">{online.has(solo.id) ? 'Online' : room.lastSeen?.[solo.id] ? `Last seen ${ago(room.lastSeen[solo.id])}` : 'Offline'}</span></>
+          : <><span className="presence-av"><Avatar name={room.name} size={28} /></span><span className="small" style={{ fontWeight: 600 }}>{room.name}</span></>}
         <span className="grow" />
         <IconButton size="sm" variant="plain" icon="image" label="Media: photos, files and voice messages" onClick={() => setSheet('media')} />
         <IconButton size="sm" variant="plain" icon="star" label="Starred messages" onClick={() => setSheet('starred')} />
-      </div>}
+        {picker && <div className="convo-menu" role="listbox" aria-label="Who to chat with">
+          <button role="option" aria-selected={!pmTo} className={!pmTo ? 'on' : ''} onClick={() => openConvo(null)}>
+            <Avatar name={room.name} size={36} /><span className="grow"><b>Room chat</b><span className="tiny muted">Everyone in {room.name} sees these messages</span></span>
+            {unread[''] ? <span className="convo-badge">{unread['']}</span> : !pmTo ? <Icon name="check" size={16} /> : null}
+          </button>
+          <span className="convo-sec">Private chats</span>
+          {reachable.map(m => <button key={m.id} role="option" aria-selected={privateTo === m.id && !!pmTo} className={privateTo === m.id && pmTo ? 'on' : ''} onClick={() => openConvo(m.id)}>
+            <span className="presence-av"><Avatar name={m.name} size={36} />{online.has(m.id) && <i className="online-dot" />}</span>
+            <span className="grow" style={{ minWidth: 0 }}><b>{firstName(m.name)}</b><span className="tiny muted ellipsis" style={{ display: 'block' }}>{previews[m.id] || 'No private messages yet'}</span></span>
+            <span className="convo-side"><span className="tiny" style={{ color: online.has(m.id) ? '#3DD68C' : 'var(--muted)' }}>{online.has(m.id) ? 'Online' : room.lastSeen?.[m.id] ? ago(room.lastSeen[m.id]) : 'Offline'}</span>{unread[m.id] ? <span className="convo-badge">{unread[m.id]}</span> : null}</span>
+          </button>)}
+          <span className="convo-foot"><Icon name="lock" size={12} />A private chat is only seen by the two of you.</span>
+        </div>}
+      </div>
+    {pmNote && <button className="pm-note" onClick={() => openConvo(pmNote.id)}><Icon name="lock" size={14} /><span className="grow"><b>{pmNote.name}</b> sent you a private message</span><span className="pm-note-open">Open</span></button>}
     <div className="chat" ref={list}>
-      <p className="tiny quiet row gap-8" style={{ justifyContent: 'center', padding: '4px 0 10px', textAlign: 'center' }}><Icon name="lock" size={13} />Private. Only people in this room can read it. History stays in this browser.</p>
-      {!hideLink && !compact && <div className="link-cta-wrap"><button className="link-cta" onClick={() => setLinking(true)}>
+      {pmTo ? <p className="pm-banner"><Icon name="lock" size={13} />Only you and {privateName} see this chat</p>
+        : <p className="tiny quiet row gap-8" style={{ justifyContent: 'center', padding: '4px 0 10px', textAlign: 'center' }}><Icon name="lock" size={13} />Private. Only people in this room can read it. History stays in this browser.</p>}
+      {!hideLink && !compact && !pmTo && <div className="link-cta-wrap"><button className="link-cta" onClick={() => setLinking(true)}>
         <span className="center" style={{ width: 36, height: 36, borderRadius: 12, background: 'rgba(200,182,255,.18)', color: 'var(--lav)', flex: 'none' }}><Icon name="phone" size={18} /></span>
         <span className="grow"><span className="small" style={{ fontWeight: 600, display: 'block' }}>Bring older chats from your phone</span><span className="tiny muted">Scan a QR code with Our Space on your phone</span></span>
       </button>
@@ -230,11 +298,11 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
         // The time shows once per run: under the last message someone sent within the same minute.
         const nx = items[k + 1];
         const showTime = !nx || nx.from !== i.from || Math.floor(nx.at / 60000) !== Math.floor(i.at / 60000) || dayLabel(nx.at) !== day;
-        const showName = i.from !== space.user.id && (i.from !== lastFrom || showDay); lastFrom = i.from;
+        const showName = !pmTo && i.from !== space.user.id && (i.from !== lastFrom || showDay); lastFrom = i.from;
         const mine = i.from === space.user.id; const sent = !i.pending && !i.failed && /^\d+$/.test(i.id);
         return <div key={i.id} style={{ display: 'contents' }}>
           {showDay && <p className="tiny quiet" style={{ textAlign: 'center', margin: '10px 0 4px' }}>{day}</p>}
-          <Message item={i} quick={quick} onMoreReact={sent && !allBlocked && !i.deleted ? () => setReactFor(i) : undefined} showTime={showTime} starred={starred.has(i.id)} names={room.members} myId={space.user.id} online={online.has(i.from)} onReplyPrivately={canPrivate && !mine && reachable.some(m => m.id === i.from) ? () => setPrivateTo(i.from) : undefined} status={mine && sent ? statusOf(Number(i.id), others, room.receipts) : null} mine={mine} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)}
+          <Message item={i} quick={quick} onMoreReact={sent && !allBlocked && !i.deleted ? () => setReactFor(i) : undefined} showTime={showTime} starred={starred.has(i.id)} names={room.members} myId={space.user.id} online={online.has(i.from)} onReplyPrivately={canPrivate && !mine && !pmTo && reachable.some(m => m.id === i.from) ? () => openConvo(i.from) : undefined} privateView={!!pmTo} status={mine && sent ? statusOf(Number(i.id), others, room.receipts) : null} mine={mine} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)}
             actions={sent && !allBlocked ? { react: e => react(i, e), reply: i.deleted ? undefined : () => startReply(i), edit: mine && !i.deleted && i.kind === 'text' ? () => startEdit(i) : undefined, deleteAll: mine && !i.deleted ? () => void deleteAll(i) : undefined, deleteMine: () => void deleteMine(i), star: i.deleted ? undefined : () => chat.toggleStar(i.id), quote: goTo, photo: (url, name) => setViewer({ url, name }) } : { deleteMine: i.pending ? undefined : () => void deleteMine(i), quote: goTo, photo: (url, name) => setViewer({ url, name }) }} />
         </div>;
       })}
@@ -257,15 +325,6 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
         <button className="staged-x" aria-label={`Remove ${x.file.name}`} onClick={() => unstage(x.id)}><Icon name="x" size={12} /></button>
       </div>)}
       <span className="tiny muted staged-note">{staged.length === 1 ? 'Press send to share it' : `Press send to share these ${staged.length}`}</span>
-    </div>}
-    {canPrivate && <div className={`to-row ${privateTo ? 'private' : ''}`}>
-      <Icon name={privateTo ? 'lock' : 'users'} size={14} />
-      <label htmlFor="chat-to" className="tiny muted">To</label>
-      <select id="chat-to" className="to-pick" value={privateTo || ''} onChange={e => setPrivateTo(e.target.value || null)}>
-        <option value="">Everyone</option>
-        {reachable.map(m => <option key={m.id} value={m.id}>{firstName(m.name)} (private)</option>)}
-      </select>
-      {privateTo && <span className="tiny">Only {privateName} will see it</span>}
     </div>}
     {(replyTo || editing) && <div className="compose-ctx">
       <Icon name={editing ? 'pencil' : 'reply'} size={15} />
@@ -313,7 +372,7 @@ function photoSize(w?: number, h?: number): React.CSSProperties | undefined {
 const QUICK = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
 const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60000); if (m < 1) return 'just now'; if (m < 60) return `${m} min ago`; const h = Math.round(m / 60); if (h < 24) return `${h} h ago`; return new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' }); };
 type Actions = { star?: () => void; react?: (emoji: string) => void; reply?: () => void; edit?: () => void; deleteAll?: () => void; deleteMine?: () => void; quote: (id: string) => void; photo: (url: string, name: string) => void };
-function Message({ quick = QUICK, onMoreReact, showTime = true, starred, item, status, mine, showName, onReport, onDismiss, names, myId, onReplyPrivately, online, actions }: { item: ChatItem; status: Status | null; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void; names: { id: string; name: string }[]; myId: string; onReplyPrivately?: () => void; online?: boolean; actions: Actions; starred?: boolean; showTime?: boolean; quick?: string[]; onMoreReact?: () => void }) {
+function Message({ privateView = false, quick = QUICK, onMoreReact, showTime = true, starred, item, status, mine, showName, onReport, onDismiss, names, myId, onReplyPrivately, online, actions }: { item: ChatItem; status: Status | null; mine: boolean; showName: boolean; onReport: () => void; onDismiss: () => void; names: { id: string; name: string }[]; myId: string; onReplyPrivately?: () => void; online?: boolean; actions: Actions; starred?: boolean; showTime?: boolean; quick?: string[]; onMoreReact?: () => void; privateView?: boolean }) {
   const [url, setUrl] = useState('');
   const [menu, setMenu] = useState(false);
   const [open, setOpen] = useState(false); // touch: long-press shows the bar
@@ -328,7 +387,7 @@ function Message({ quick = QUICK, onMoreReact, showTime = true, starred, item, s
     document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
   }, [menu, open]);
-  const privateLabel = item.to?.length ? (mine ? `Private to ${item.to.map(id => firstName(names.find(m => m.id === id)?.name || 'them')).join(', ')}` : item.to.includes(myId) ? 'Private · only you' : 'Private') : '';
+  const privateLabel = item.to?.length && !privateView ? (mine ? `Private to ${item.to.map(id => firstName(names.find(m => m.id === id)?.name || 'them')).join(', ')}` : item.to.includes(myId) ? 'Private · only you' : 'Private') : '';
   const nameOf = (id: string) => id === myId ? 'You' : firstName(names.find(m => m.id === id)?.name || 'Someone');
   // Reactions grouped by emoji, like Instagram: 😂 2
   const groups = Object.entries(item.reactions || {}).reduce<Record<string, string[]>>((g, [who, e]) => { (g[e] ||= []).push(who); return g; }, {});
