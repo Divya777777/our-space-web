@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NotifyPrompt } from '../components/NotifyPrompt';
 import type { Room } from '../lib/model';
 import { lastVisitOf, useRoomsByVisit } from '../lib/recentRooms';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useMoments } from '../lib/moments';
+import { MomentCapture, MomentViewer, MomentsFaces, MomentsPile } from '../components/Moments';
 import { useSpace } from '../lib/space';
 import { Avatar, Button, Notice, Skeleton, firstName } from '../components/ui';
 import { CreateRoomSheet, JoinRoomSheet } from '../components/RoomBits';
@@ -26,14 +28,27 @@ export default function Home() {
   const lead = !!live && live.code === ordered[0]?.code && lastVisitOf(live.code) > 0;
   const waiting = space.rooms.filter(r => r.hostId === space.user.id && r.requests.length > 0);
   const others = live ? live.members.filter(m => m.id !== space.user.id) : [];
+  // Moments: faces row under the greeting, the pile in the corner, the viewer and the snap camera.
+  const moments = useMoments();
+  const [params, setParams] = useSearchParams();
+  const [viewing, setViewing] = useState<string | null>(null);
+  const [snapping, setSnapping] = useState(false);
+  // A notification ("Riya shared a moment") opens /?moment=<id>.
+  const wanted = params.get('moment');
+  useEffect(() => {
+    if (!wanted || !moments.loaded) return;
+    if (moments.list.some(m => m.id === wanted)) setViewing(wanted);
+    setParams(p => { p.delete('moment'); return p; }, { replace: true });
+  }, [wanted, moments.loaded, moments.list, setParams]);
   return <div className="page page-ambient">
     {/* The featured room's videos glow softly behind Home, changing as you pick another room. */}
     {live && <Ambient ids={roomVideos(live, space.playlists)} />}
     {!fresh && <div style={{ marginBottom: 18 }}><NotifyPrompt /></div>}
     {!fresh && <div className="row between wrap gap-16">
       <div className="col gap-4"><p className="muted">{greeting()}, {firstName(space.user.name)}</p><h1 className="display" style={{ fontSize: 40 }}>Where to <b>tonight?</b></h1></div>
-      {!fresh && <div className="row gap-8"><Button variant="secondary" icon="enter" onClick={() => setSheet('join')}>Join with code</Button><Button icon="plus" onClick={() => setSheet('create')}>Create a room</Button></div>}
+      {!fresh && <div className="row gap-8"><Button variant="secondary" icon="camera" onClick={() => setSnapping(true)}>Share a moment</Button><Button variant="secondary" icon="enter" onClick={() => setSheet('join')}>Join with code</Button><Button icon="plus" onClick={() => setSheet('create')}>Create a room</Button></div>}
     </div>}
+    {!fresh && space.rooms.length > 0 && <MomentsFaces moments={moments} onOpen={setViewing} onSnap={() => setSnapping(true)} />}
     {space.waking && <div style={{ marginTop: 20 }}><Notice icon="moon">Waking up the server… this can take up to 30 seconds after a quiet spell.</Notice></div>}
     {space.error && !space.waking && space.rooms.length === 0 && <div style={{ marginTop: 20 }}><Notice tone="error">{space.error} <button className="lav" onClick={() => void space.refresh()}>Try again</button></Notice></div>}
     {waiting.map(r => <Link key={r.code} to={`/room/${r.code}?tab=people`} className="glass panel row" style={{ marginTop: 18, padding: '12px 16px', color: 'var(--text)' }}>
@@ -68,6 +83,9 @@ export default function Home() {
       <div className="section-head"><h2 className="h2">Coming up</h2></div>
       <Plans />
     </>}
+    <MomentsPile moments={moments} onOpen={setViewing} />
+    {viewing && <MomentViewer moments={moments} startId={viewing} onClose={() => setViewing(null)} onSnapBack={() => setSnapping(true)} />}
+    {snapping && <MomentCapture moments={moments} onClose={() => setSnapping(false)} />}
     {sheet === 'create' && <CreateRoomSheet onClose={() => setSheet(null)} />}
     {sheet === 'join' && <JoinRoomSheet onClose={() => setSheet(null)} />}
   </div>;

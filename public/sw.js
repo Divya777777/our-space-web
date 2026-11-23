@@ -4,7 +4,7 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
 const base = new URL('./', self.location).href; // e.g. https://divya777777.github.io/our-space-web/
-const target = data => data && data.code ? `${base}room/${encodeURIComponent(data.code)}${data.type === 'message' ? '?tab=chat' : data.type === 'goal' ? '?tab=goals' : data.type === 'game' ? '?tab=play' : data.type === 'request' ? '?tab=people' : ''}` : base;
+const target = data => data && data.type === 'moment' && data.id ? `${base}?moment=${encodeURIComponent(data.id)}` : data && data.code ? `${base}room/${encodeURIComponent(data.code)}${data.type === 'message' ? '?tab=chat' : data.type === 'goal' ? '?tab=goals' : data.type === 'game' ? '?tab=play' : data.type === 'request' ? '?tab=people' : ''}` : base;
 
 self.addEventListener('push', event => {
   let msg = {}; try { msg = event.data ? event.data.json() : {}; } catch { msg = { title: 'Our Space', body: event.data && event.data.text() }; }
@@ -31,7 +31,7 @@ self.addEventListener('notificationclick', event => {
   event.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const same = wins.find(c => c.url.startsWith(base));
-    if (same) { await same.focus(); if (!same.url.startsWith(url.split('?')[0])) await same.navigate(url).catch(() => {}); return; }
+    if (same) { await same.focus(); if (!same.url.startsWith(url.split('?')[0]) || url.includes('?moment=')) await same.navigate(url).catch(() => {}); return; }
     await self.clients.openWindow(url);
   })());
 });

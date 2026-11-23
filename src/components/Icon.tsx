@@ -73,6 +73,8 @@ const P = {
   reply: 'M9 14L4 9l5-5M4 9h10a6 6 0 0 1 6 6v4',
   smile: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8.5 14a4 4 0 0 0 7 0M9 9.5h.01M15 9.5h.01',
   dbldown: 'M7 6l5 5 5-5M7 13l5 5 5-5',
+  camera: 'M4 8h3l2-3h6l2 3h3v11H4zM12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7',
+  aperture: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 3l3.5 6M21 12h-7M15.5 19.5 12 13.5M8.5 19.5 12 13.5M3 12h7M8.5 4.5 12 10.5',
 } as const;
 export type IconName = keyof typeof P;
 export function Icon({ name, size = 20, stroke = 1.8, className, fill }: { name: IconName; size?: number; stroke?: number; className?: string; fill?: boolean }) {

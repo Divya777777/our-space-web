@@ -1,0 +1,95 @@
+/* Moments: pile, faces row, viewer, comments, snap. Uses the app's own variables (styles.css). */
+
+/* Pile in the bottom-right corner of Home, like Instagram's Instants. */
+.mo-pile { position: fixed; right: 28px; bottom: 28px; z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.mo-pile-stack { position: relative; width: 132px; height: 150px; }
+.mo-pile-card { position: absolute; left: 14px; top: 10px; width: 100px; height: 128px; border-radius: 14px; overflow: hidden; border: 3px solid var(--text); background: var(--void-2); box-shadow: 0 16px 34px -10px rgba(0,0,0,.65); transition: transform .35s var(--ease); }
+.mo-pile-card img { width: 100%; height: 100%; object-fit: cover; }
+.mo-pile-card.c0 { transform: rotate(-2deg); z-index: 3; }
+.mo-pile-card.c1 { transform: rotate(7deg) translate(10px, -4px); z-index: 2; }
+.mo-pile-card.c2 { transform: rotate(-10deg) translate(-6px, 4px); z-index: 1; }
+.mo-pile-stack:hover .mo-pile-card.c1 { transform: rotate(12deg) translate(18px, -8px); }
+.mo-pile-stack:hover .mo-pile-card.c2 { transform: rotate(-15deg) translate(-14px, 6px); }
+.mo-pile-stack:hover .mo-pile-card.c0 { transform: rotate(0) translateY(-4px); }
+.mo-pile-face { position: absolute; left: 6px; top: 6px; }
+.mo-pile-badge { position: absolute; right: 0; top: 0; z-index: 5; min-width: 26px; height: 26px; padding: 0 8px; border-radius: 13px; background: var(--lav); color: var(--lav-ink); font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.mo-locked { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--muted); background: var(--glass-strong); }
+@media (max-width: 760px) { .mo-pile { right: 14px; bottom: 92px; transform: scale(.82); transform-origin: bottom right; } }
+html.app-full .mo-pile { display: none; }
+
+/* Faces row */
+.mo-faces { display: flex; gap: 14px; overflow-x: auto; padding: 6px 2px 4px; margin-top: 18px; scrollbar-width: none; }
+.mo-faces::-webkit-scrollbar { display: none; }
+.mo-face { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 72px; }
+.mo-face-ring { width: 64px; height: 64px; border-radius: 50%; padding: 3px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.mo-face-ring img, .mo-face-ring .avatar { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 3px solid var(--void); box-sizing: border-box; }
+.mo-face-ring.new { background: conic-gradient(var(--lav), var(--rose), var(--gold), var(--lav)); }
+.mo-face-ring.seen { background: rgba(255,255,255,.18); }
+.mo-face-ring.add { border: 2px dashed rgba(200,182,255,.7); color: var(--lav); }
+
+/* Viewer */
+.mo-viewer { position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center; gap: 24px; padding: 24px 16px; background: rgba(5,7,14,.96); animation: mo-in .25s var(--ease); }
+@keyframes mo-in { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+.mo-viewer-glow { position: absolute; inset: -10%; background-size: cover; background-position: center; filter: blur(70px) saturate(1.3); opacity: .35; pointer-events: none; }
+.mo-close { position: absolute !important; right: 22px; top: 20px; z-index: 3; }
+.mo-arrow { position: relative; z-index: 2; flex: none; width: 52px; height: 52px; border-radius: 50%; background: rgba(255,255,255,.1); color: var(--text); display: inline-flex; align-items: center; justify-content: center; }
+.mo-arrow:disabled { opacity: .3; cursor: default; }
+.mo-arrow:not(:disabled):hover { background: rgba(255,255,255,.18); }
+.mo-stage { position: relative; z-index: 2; display: flex; flex-direction: column; gap: 14px; width: min(440px, 100%); }
+.mo-card { position: relative; aspect-ratio: 3 / 4; max-height: calc(100vh - 230px); border-radius: 26px; overflow: hidden; background: var(--void-2); box-shadow: var(--depth); user-select: none; }
+.mo-photo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mo-photo.blur { filter: blur(14px); transform: scale(1.06); }
+.mo-cant { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; color: var(--muted); padding: 24px; }
+.mo-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.5) 0%, transparent 22%, transparent 60%, rgba(0,0,0,.72) 100%); pointer-events: none; }
+.mo-bars { position: absolute; left: 12px; right: 12px; top: 10px; display: flex; gap: 4px; z-index: 2; }
+.mo-bars span { flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,.35); overflow: hidden; }
+.mo-bars i { display: block; height: 100%; background: var(--text); }
+.mo-head { position: absolute; left: 14px; right: 14px; top: 24px; display: flex; align-items: center; gap: 10px; z-index: 2; line-height: 1.25; }
+.mo-dim { color: #E4E7F0; opacity: .85; }
+.mo-stickers { position: absolute; left: 14px; right: 14px; top: 72px; display: flex; flex-wrap: wrap; gap: 6px; z-index: 2; pointer-events: none; }
+.mo-chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 13px; font-size: 12px; font-weight: 600; background: rgba(10,12,24,.55); border: 1px solid rgba(255,255,255,.2); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--text); }
+.mo-mood { font-size: 18px; padding: 2px 8px; }
+.mo-caption { position: absolute; left: 0; right: 0; bottom: 18px; margin: 0; padding: 0 22px; text-align: center; font-size: 20px; font-weight: 600; text-shadow: 0 2px 12px rgba(0,0,0,.55); z-index: 2; pointer-events: none; }
+.mo-tap { position: absolute; top: 18%; bottom: 18%; width: 33%; z-index: 1; cursor: pointer; }
+.mo-tap.left { left: 0; } .mo-tap.right { right: 0; }
+.mo-bottom { display: flex; flex-direction: column; gap: 10px; }
+.mo-reacts { display: flex; justify-content: center; gap: 8px; }
+.mo-reacts button { width: 46px; height: 46px; border-radius: 50%; font-size: 21px; background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 1px var(--edge); transition: transform .15s var(--ease), background .2s; }
+.mo-reacts button:hover { transform: scale(1.12); }
+.mo-reacts button.on { background: rgba(200,182,255,.45); transform: scale(1.12); }
+.mo-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.mo-own { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 18px; background: var(--glass); border: 1px solid var(--edge); }
+
+/* Comments (side panel on wide screens, bottom sheet on narrow ones) */
+.mo-comments { position: relative; z-index: 3; width: 340px; max-height: min(640px, calc(100vh - 48px)); display: flex; flex-direction: column; gap: 10px; padding: 18px; border-radius: var(--r-panel); background: var(--glass-strong); border: 1px solid var(--edge); box-shadow: var(--depth); animation: mo-in .2s var(--ease); }
+.mo-comment-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 80px; }
+.mo-comment { display: flex; gap: 10px; align-items: flex-start; }
+.mo-comment p { margin: 2px 0 0; overflow-wrap: anywhere; }
+.mo-comment-box { display: flex; gap: 8px; }
+.mo-comment-box input { flex: 1; min-width: 0; height: 44px; border-radius: 22px; padding: 0 16px; background: rgba(5,8,18,.5); border: 1px solid var(--edge); color: var(--text); outline: none; }
+.mo-comment-box input:focus { border-color: rgba(200,182,255,.55); }
+@media (max-width: 900px) {
+  .mo-viewer { gap: 8px; padding: 12px 8px; }
+  .mo-arrow { display: none; }
+  .mo-comments { position: absolute; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 60vh; }
+}
+
+/* Snap */
+.mo-snap-scrim { position: fixed; inset: 0; z-index: 110; display: flex; align-items: center; justify-content: center; padding: 24px 12px; background: rgba(5,7,14,.9); overflow-y: auto; }
+.mo-snap { width: 100%; max-width: 1080px; display: flex; flex-wrap: wrap; border-radius: var(--r-window); overflow: hidden; background: var(--glass-strong); border: 1px solid var(--edge); box-shadow: var(--depth); animation: mo-in .25s var(--ease); }
+.mo-snap-main { flex: 999 1 480px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+.mo-snap-side { flex: 1 1 320px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 18px; background: rgba(10,13,26,.55); border-left: 1px solid rgba(255,255,255,.06); }
+.mo-snap-frame { position: relative; aspect-ratio: 4 / 3; border-radius: 22px; overflow: hidden; background: #05070E; }
+.mo-snap-frame video, .mo-snap-frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mo-snap-frame .mirror { transform: scaleX(-1); }
+.mo-count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 120px; font-weight: 300; color: var(--text); text-shadow: 0 4px 30px rgba(0,0,0,.6); }
+.mo-snap-controls { display: flex; align-items: center; justify-content: center; gap: 28px; min-height: 72px; }
+.mo-filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.mo-filter { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--muted); }
+.mo-filter:disabled { opacity: .45; cursor: default; }
+.mo-filter.on { color: var(--text); }
+.mo-filter-thumb { position: relative; width: 100%; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px var(--edge); }
+.mo-filter.on .mo-filter-thumb { box-shadow: 0 0 0 3px var(--lav); }
+.mo-filter-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.mo-filter-thumb i { position: absolute; right: 3px; top: 3px; padding: 0 4px; border-radius: 5px; background: var(--gold); color: #2A1F0B; font-size: 8px; font-weight: 700; font-style: normal; }
+@media (prefers-reduced-motion: reduce) { .mo-viewer, .mo-snap, .mo-comments { animation: none; } .mo-pile-card { transition: none; } }
