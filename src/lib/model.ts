@@ -3,7 +3,8 @@ export type Person = { id: string; name: string; key?: string; devices?: Device[
 export type Message = { id: string; userId: string; name: string; text: string; at: number };
 export type Playback = { videoId: string; playing: boolean; position: number; updatedAt: number; updatedBy: string; revision: number;
   /** The room is waiting while this person's browser shows a YouTube ad. */ hold?: { by: string; name: string } };
-export type QueueItem = { id: string; videoId: string; title: string; source: 'manual' | 'playlist'; addedBy?: string };
+export type QueueItem = { id: string; videoId: string; title: string; source: 'manual' | 'playlist'; addedBy?: string;
+  /** Apple Music songs ("am:<id>") carry their cover and artist. */ art?: string; artist?: string };
 /** Message status per member: `d` newest chat message their app downloaded, `r` newest one they have seen. */
 export type Receipts = Record<string, { d: number; r: number }>;
 /** A call going on in the room right now (who's in it), so people can join later. */
@@ -11,7 +12,7 @@ export type LiveCall = { id: string; video: boolean; title: string; people: { id
 /** Live games on right now ("Kabir started Scribble · Join"). `players` = ids with the game open. */
 export type LiveGames = { scribble: { id: string; by: string; byName: string; players: string[] } | null; td: { id: string; by: string; byName: string; players: string[] } | null };
 export type Room = { /** Who has Our Space open right now. */ online?: string[]; /** When offline members were last online (ms). */ lastSeen?: Record<string, number>; games?: LiveGames | null; call?: LiveCall | null; theme?: string; receipts?: Receipts; volume?: number; e2eCursor?: number; queue?: QueueItem[]; updateCursor?: number; playlistVersion?: number; goalsVersion?: number; code: string; name: string; hostId: string; members: Person[]; requests: Person[]; messages: Message[]; playback: Playback | null };
-export type Track = { videoId: string; title: string };
+export type Track = { videoId: string; title: string; /** Apple Music songs only. */ art?: string; artist?: string; durationSeconds?: number };
 export type Playlist = { id: string; name: string; scope: 'personal' | 'room'; ownerId: string; roomCode: string | null; tracks: Track[] };
 export type Session = Person & { token: string };
 export function youtubeId(value: string): string | null {

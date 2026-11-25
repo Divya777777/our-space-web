@@ -5,12 +5,15 @@ import type { Playlist, Track } from '../lib/model';
 import { plusLimit } from '../lib/types';
 import { playlistIdeas } from '../lib/names';
 import { thumbnail } from '../lib/youtube';
-import { Button, IconButton, Notice, Sheet, Skeleton, useConfirm, useToast } from '../components/ui';
+import { Button, IconButton, Notice, Segments, Sheet, Skeleton, useConfirm, useToast } from '../components/ui';
 import { CoverArt, useTilt } from '../components/CoverArt';
 import { YouTubeSearch } from '../components/YouTubeSearch';
 import { Icon } from '../components/Icon';
 import { EmptyState } from '../components/EmptyState';
 import YouTubePlayer from '../components/YouTubePlayer';
+import AppleMusicPlayer from '../components/AppleMusicPlayer';
+import { AppleMusicSearch } from '../components/AppleMusicSearch';
+import { isApple } from '../lib/appleMusic';
 
 export default function Library() {
   const space = useSpace();
@@ -69,6 +72,7 @@ function PlaylistView({ list, onBack }: { list: Playlist; onBack: () => void }) 
   const [playing, setPlaying] = useState<number | null>(null);
   const [drag, setDrag] = useState<number | null>(null);
   const [pick, setPick] = useState<Track[] | null>(null);
+  const [source, setSource] = useState<'youtube' | 'apple'>('youtube');
   const canDelete = list.scope === 'personal' ? true : list.ownerId === space.user.id || space.rooms.find(r => r.code === list.roomCode)?.hostId === space.user.id;
   const fail = (e: unknown) => toast((e as Error).message, { tone: 'error' });
   const add = async (t: Track) => { try { await space.addTrack(list.id, t); toast('Added', { icon: 'check' }); } catch (e) { fail(e); } };
@@ -82,12 +86,15 @@ function PlaylistView({ list, onBack }: { list: Playlist; onBack: () => void }) 
       {canDelete && <IconButton icon="trash" variant="plain" label="Delete playlist" onClick={async () => { if (await confirm({ title: `Delete “${list.name}”?`, body: 'The videos in it are removed from this playlist. This can’t be undone.', confirmLabel: 'Delete playlist', danger: true })) { try { await space.deletePlaylist(list.id); onBack(); } catch (e) { fail(e); } } }} />}
     </div>
     {playing !== null && list.tracks[playing] && <SoloPlayer tracks={list.tracks} index={playing} onIndex={setPlaying} onClose={() => setPlaying(null)} />}
-    <div style={{ marginTop: 24, maxWidth: 720 }}><YouTubeSearch onPlay={t => void add(t)} saved={[]} /></div>
+    <div className="col gap-8" style={{ marginTop: 24, maxWidth: 720 }}>
+      <Segments label="Add from" value={source} onChange={setSource} options={[{ value: 'youtube', label: 'YouTube' }, { value: 'apple', label: 'Apple Music' }]} />
+      {source === 'youtube' ? <YouTubeSearch onPlay={t => void add(t)} saved={[]} /> : <AppleMusicSearch onPlay={t => void add(t)} />}
+    </div>
     <div className="list" style={{ marginTop: 18 }}>
       {list.tracks.map((t, i) => <div key={t.videoId} className="list-row" draggable onDragStart={() => setDrag(i)} onDragEnd={() => setDrag(null)} onDragOver={e => e.preventDefault()}
         onDrop={() => { if (drag === null || drag === i) return; const ids = list.tracks.map(x => x.videoId); const [m] = ids.splice(drag, 1); ids.splice(i, 0, m); void space.reorderTracks(list.id, ids).catch(fail); setDrag(null); }} style={{ opacity: drag === i ? .4 : 1 }}>
         <span className="quiet" style={{ cursor: 'grab' }}><Icon name="grip" size={16} /></span>
-        <img className="thumb" src={thumbnail(t.videoId)} alt="" loading="lazy" />
+        <img className="thumb" src={thumbnail(t.videoId, t.art)} alt="" loading="lazy" />
         <span className="grow ellipsis" style={{ fontWeight: playing === i ? 600 : 400, color: playing === i ? 'var(--lav)' : undefined }}>{t.title}</span>
         <IconButton size="sm" variant="plain" icon="play" label={`Play ${t.title} here`} onClick={() => setPlaying(i)} />
         <IconButton size="sm" variant="plain" icon="x" label={`Remove ${t.title}`} onClick={() => void space.removeTrack(list.id, t.videoId).catch(fail)} />
@@ -103,9 +110,11 @@ function SoloPlayer({ tracks, index, onIndex, onClose }: { tracks: Track[]; inde
   const t = tracks[index];
   const [pb, setPb] = useState({ videoId: t.videoId, playing: true, position: 0, updatedAt: Date.now(), updatedBy: '', revision: 1 });
   const rev = useRef(1);
+  const apple = isApple(t.videoId);
+  const Player = apple ? AppleMusicPlayer : YouTubePlayer;
   useEffect(() => { rev.current += 1; setPb({ videoId: t.videoId, playing: true, position: 0, updatedAt: Date.now(), updatedBy: '', revision: rev.current }); }, [t.videoId]);
   return <div className="glass window" style={{ marginTop: 24, padding: 12, maxWidth: 720 }}>
-    <div className="screen" style={{ borderRadius: 20 }}><YouTubePlayer playback={pb} events={{
+    <div className="screen" style={{ borderRadius: 20 }}><Player key={apple ? 'am' : 'yt'} playback={pb} events={{
       onEnded: () => { if (index + 1 < tracks.length) onIndex(index + 1); },
       onUserControl: (a, at) => { rev.current += 1; setPb(p => ({ ...p, playing: a === 'seek' ? p.playing : a === 'play', position: at, updatedAt: Date.now(), revision: rev.current })); },
     }} /></div>

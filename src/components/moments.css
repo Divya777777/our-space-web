@@ -37,7 +37,9 @@ html.app-full .mo-pile { display: none; }
 .mo-arrow:not(:disabled):hover { background: rgba(255,255,255,.18); }
 .mo-stage { position: relative; z-index: 2; display: flex; flex-direction: column; gap: 14px; width: min(440px, 100%); }
 .mo-card { position: relative; aspect-ratio: 3 / 4; max-height: calc(100vh - 230px); border-radius: 26px; overflow: hidden; background: var(--void-2); box-shadow: var(--depth); user-select: none; }
-.mo-photo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mo-photo { position: relative; width: 100%; height: 100%; object-fit: contain; display: block; }
+/* A blurred copy fills the card behind the whole photo, so tall and wide photos never look stretched or cropped. */
+.mo-photo-bg { position: absolute; inset: -8%; width: 116%; height: 116%; object-fit: cover; filter: blur(28px) brightness(.72) saturate(1.2); }
 .mo-photo.blur { filter: blur(14px); transform: scale(1.06); }
 .mo-cant { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; color: var(--muted); padding: 24px; }
 .mo-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.5) 0%, transparent 22%, transparent 60%, rgba(0,0,0,.72) 100%); pointer-events: none; }

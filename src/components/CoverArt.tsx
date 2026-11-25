@@ -3,6 +3,7 @@
 import React, { useRef, useState } from 'react';
 import type { Playlist, Room } from '../lib/model';
 import { Star } from './Brand';
+import { thumbnail } from '../lib/youtube';
 
 const PALETTES = [
   ['#1C1440', '#5A44A8', '#E9B8D8'], ['#0B2230', '#2E6F78', '#B6DDCF'], ['#22122E', '#8A4B7A', '#F2AAAA'],
@@ -19,7 +20,7 @@ export function roomVideos(room: Room, playlists: Playlist[]) {
 }
 
 function Thumb({ id, onFail }: { id: string; onFail: () => void }) {
-  const [src, setSrc] = useState(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`);
+  const [src, setSrc] = useState(id.startsWith('am:') ? thumbnail(id) : `https://i.ytimg.com/vi/${id}/hqdefault.jpg`);
   return <img src={src} alt="" loading="lazy" decoding="async" draggable={false}
     onError={() => { if (src.includes('hqdefault')) setSrc(`https://i.ytimg.com/vi/${id}/mqdefault.jpg`); else onFail(); }} />;
 }

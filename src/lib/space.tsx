@@ -7,6 +7,9 @@ import { localizeRoom } from './model';
 import type { CallSignal, IceServer, PlanInfo, SearchResult } from './types';
 import { FREE_LIMITS } from './types';
 import { forgetIdentity, loadIdentity } from './e2e';
+import { appleSong, isApple } from './appleMusic';
+/** Apple Music songs travel with their cover, artist and length (from search), so queues and playlists can show them. */
+function withSong<T extends { videoId?: string; art?: string; artist?: string; durationSeconds?: number }>(p: T): T { const s = isApple(p.videoId) ? appleSong(p.videoId) : undefined; return s ? { ...p, art: p.art || s.art, artist: p.artist || s.artist, durationSeconds: p.durationSeconds || s.durationSeconds } : p; }
 
 type Api = <T>(path: string, body?: unknown, method?: string, signal?: AbortSignal) => Promise<T>;
 type QueueAction = 'add' | 'remove' | 'clear' | 'next' | 'move';
@@ -26,7 +29,7 @@ type Space = {
   approve: (code: string, userId: string, approved: boolean) => Promise<void>;
   removeMember: (code: string, userId: string) => Promise<void>;
   play: (code: string, videoId: string, playing: boolean, position: number, context?: Track[], opts?: { hold?: boolean }) => Promise<void>;
-  queue: (code: string, action: QueueAction, payload?: { videoId?: string; title?: string; id?: string; from?: string; to?: number }) => Promise<void>;
+  queue: (code: string, action: QueueAction, payload?: { videoId?: string; title?: string; id?: string; from?: string; to?: number; art?: string; artist?: string }) => Promise<void>;
   setVolume: (code: string, volume: number) => Promise<void>;
   searchYouTube: (query: string, signal?: AbortSignal) => Promise<SearchResult[]>;
   createPlaylist: (name: string, scope: Playlist['scope'], roomCode?: string) => Promise<Playlist>;
@@ -239,7 +242,7 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
       try { mergeRoom(await request<Room>(`/rooms/${code}/playback`, { videoId, playing, position, ...(opts?.hold ? { hold: true } : {}), ...(context ? { queueContext: context.slice(0, 100) } : {}) })); }
       finally { if (pendingPlay.current.get(code)?.playback === optimistic) pendingPlay.current.delete(code); }
     },
-    async queue(code, action, payload = {}) { mergeRoom(await request<Room>(`/rooms/${code}/queue`, { action, ...payload })); },
+    async queue(code, action, payload = {}) { mergeRoom(await request<Room>(`/rooms/${code}/queue`, { action, ...withSong(payload) })); },
     async setVolume(code, volume) {
       const v = Math.max(0, Math.min(100, Math.round(volume)));
       setRooms(prev => prev.map(r => r.code === code ? { ...r, volume: v } : r));
@@ -259,10 +262,10 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
     async addTrack(id, track) {
       const list = playlists.find(p => p.id === id);
       if (list?.tracks.some(t => t.videoId === track.videoId)) throw new Error('This video is already saved there.');
-      const next = await request<Playlist>(`/playlists/${id}/tracks`, track);
+      const next = await request<Playlist>(`/playlists/${id}/tracks`, withSong(track));
       setPlaylists(prev => prev.map(p => p.id === id ? next : p));
     },
-    async removeTrack(id, videoId) { const next = await request<Playlist>(`/playlists/${id}/tracks/${videoId}`, undefined, 'DELETE'); setPlaylists(prev => prev.map(p => p.id === id ? next : p)); },
+    async removeTrack(id, videoId) { const next = await request<Playlist>(`/playlists/${id}/tracks/${encodeURIComponent(videoId)}`, undefined, 'DELETE'); setPlaylists(prev => prev.map(p => p.id === id ? next : p)); },
     async reorderTracks(id, videoIds) {
       const list = playlists.find(p => p.id === id); if (!list) return;
       setPlaylists(prev => prev.map(p => p.id === id ? { ...list, tracks: videoIds.map(v => list.tracks.find(t => t.videoId === v)!).filter(Boolean) } : p));

@@ -136,6 +136,7 @@ export function MomentViewer({ moments, startId, onClose, onSnapBack }: { moment
 
     <div className="mo-stage">
       <div className="mo-card" onMouseDown={() => setPaused(true)} onMouseUp={() => setPaused(false)} onMouseLeave={() => setPaused(false)}>
+        {(photo || m.thumbUrl) && <img className="mo-photo-bg" src={photo?.url || m.thumbUrl || ''} alt="" aria-hidden="true" />}
         {photo ? <img className="mo-photo" src={photo.url} alt={meta?.caption || `${m.from.name}'s moment`} />
           : m.thumbUrl ? <img className="mo-photo blur" src={m.thumbUrl} alt="" />
             : <div className="mo-photo mo-cant"><Icon name="lock" size={28} /><p>This browser can’t open this moment.<br />Open it in the Our Space app.</p></div>}

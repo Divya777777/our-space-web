@@ -9,4 +9,6 @@ export async function fetchVideoTitle(videoId: string, timeoutMs = 8000): Promis
     return typeof data.title === 'string' ? data.title : '';
   } catch { return ''; } finally { clearTimeout(timer); }
 }
-export const thumbnail = (videoId: string) => `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+import { appleSong, NOTE_ART } from './appleMusic';
+/** Picture for a video, or the cover of an Apple Music song ("am:<id>"). */
+export const thumbnail = (videoId: string, art?: string) => videoId.startsWith('am:') ? (art || appleSong(videoId)?.art || NOTE_ART) : `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;

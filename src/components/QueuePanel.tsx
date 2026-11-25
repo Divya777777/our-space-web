@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { lookupSongs, useAppleSongs } from '../lib/appleMusic';
 import type { Room, Track } from '../lib/model';
 import { useSpace } from '../lib/space';
 import { thumbnail } from '../lib/youtube';
@@ -9,6 +10,8 @@ import { Icon } from './Icon';
 export function QueuePanel({ room, onPlay }: { room: Room; onPlay: (t: Track, context?: Track[]) => void }) {
   const space = useSpace();
   const toast = useToast();
+  useAppleSongs();
+  useEffect(() => { lookupSongs(space.api, (room.queue || []).map(q => q.videoId)); }, [room.queue, space.api]);
   const [drag, setDrag] = useState<string | null>(null);
   const queue = room.queue || [];
   const lists = space.playlists.filter(p => (p.scope === 'room' && p.roomCode === room.code) || p.scope === 'personal');
@@ -16,13 +19,13 @@ export function QueuePanel({ room, onPlay }: { room: Room; onPlay: (t: Track, co
   return <div className="col gap-20">
     <div className="col gap-8">
       <div className="row between"><p className="h3">Up next</p>{queue.length > 0 && <Button size="sm" variant="ghost" onClick={() => act(() => space.queue(room.code, 'clear'))}>Clear</Button>}</div>
-      {!queue.length && <p className="small muted">Nothing queued. Add videos from search, or play a playlist and it continues by itself.</p>}
+      {!queue.length && <p className="small muted">Nothing queued. Add videos or songs from search, or play a playlist and it continues by itself.</p>}
       <div className="list">{queue.map((item, i) => <div key={item.id} className="list-row" style={{ padding: '6px 6px', opacity: drag === item.id ? .4 : 1 }} draggable
         onDragStart={() => setDrag(item.id)} onDragEnd={() => setDrag(null)} onDragOver={e => e.preventDefault()}
         onDrop={() => { if (drag && drag !== item.id) act(() => space.queue(room.code, 'move', { id: drag, to: i })); setDrag(null); }}>
         <span className="quiet" style={{ cursor: 'grab' }} aria-hidden="true"><Icon name="grip" size={16} /></span>
-        <img className="thumb sm" src={thumbnail(item.videoId)} alt="" loading="lazy" />
-        <div className="grow"><p className="small ellipsis" style={{ fontWeight: 600 }}>{item.title}</p><p className="tiny muted">{item.source === 'playlist' ? 'From the playlist' : 'Added'}</p></div>
+        <img className="thumb sm" src={thumbnail(item.videoId, item.art)} alt="" loading="lazy" />
+        <div className="grow"><p className="small ellipsis" style={{ fontWeight: 600 }}>{item.title}</p><p className="tiny muted ellipsis">{item.artist ? `${item.artist} · ` : ''}{item.source === 'playlist' ? 'From the playlist' : 'Added'}</p></div>
         <IconButton size="sm" variant="plain" icon="play" label={`Play ${item.title} now`} onClick={() => onPlay({ videoId: item.videoId, title: item.title })} />
         <IconButton size="sm" variant="plain" icon="x" label={`Remove ${item.title} from Up next`} onClick={() => act(() => space.queue(room.code, 'remove', { id: item.id }))} />
       </div>)}</div>
@@ -32,13 +35,13 @@ export function QueuePanel({ room, onPlay }: { room: Room; onPlay: (t: Track, co
       {lists.map(p => <details key={p.id} className="inset pl-details" style={{ padding: '4px 6px' }}>
         <summary className="row" style={{ padding: '8px 8px', cursor: 'pointer', listStyle: 'none' }}>
           <Icon name={p.scope === 'room' ? 'users' : 'bookmark'} size={18} />
-          <span className="grow small ellipsis" style={{ fontWeight: 600 }}>{p.name}</span><span className="tiny muted">{p.tracks.length} video{p.tracks.length === 1 ? "" : "s"}</span>
+          <span className="grow small ellipsis" style={{ fontWeight: 600 }}>{p.name}</span><span className="tiny muted">{p.tracks.length} item{p.tracks.length === 1 ? "" : "s"}</span>
           {p.tracks.length > 0 && <IconButton size="sm" variant="accent" icon="play" label={`Play ${p.name} for everyone`} onClick={e => { e.preventDefault(); onPlay(p.tracks[0], p.tracks.slice(1)); }} />}
           {/* Tap the row to see every video in it: the arrow says so, and turns when it's open. */}
           <span className="pl-chev" aria-hidden="true"><Icon name="down" size={16} /></span>
         </summary>
         <div className="list" style={{ paddingBottom: 6 }}>{p.tracks.map((t, i) => <div key={t.videoId} className="list-row" style={{ padding: '6px 8px' }}>
-          <img className="thumb sm" src={thumbnail(t.videoId)} alt="" loading="lazy" /><span className="grow small ellipsis">{t.title}</span>
+          <img className="thumb sm" src={thumbnail(t.videoId, t.art)} alt="" loading="lazy" /><span className="grow small ellipsis">{t.title}</span>
           <IconButton size="sm" variant="plain" icon="queue" label={`Add ${t.title} to Up next`} onClick={() => act(async () => { await space.queue(room.code, 'add', { videoId: t.videoId, title: t.title }); toast('Added to Up next', { icon: 'queue' }); })} />
           <IconButton size="sm" variant="plain" icon="play" label={`Play ${t.title} for everyone`} onClick={() => onPlay(t, p.tracks.slice(i + 1))} />
         </div>)}{!p.tracks.length && <p className="tiny muted" style={{ padding: 8 }}>Empty. Save the playing video here with the bookmark button.</p>}</div>

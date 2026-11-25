@@ -10,6 +10,10 @@ import { positionNow, Track } from '../lib/model';
 import { enterRoom, useGatedPlayback } from '../lib/playGate';
 import { useRoomChat } from '../lib/useRoomChat';
 import YouTubePlayer from '../components/YouTubePlayer';
+import AppleMusicPlayer from '../components/AppleMusicPlayer';
+import { AppleMusicSearch } from '../components/AppleMusicSearch';
+import { isApple } from '../lib/appleMusic';
+import { thumbnail } from '../lib/youtube';
 import { YouTubeSearch } from '../components/YouTubeSearch';
 import { ChatPanel } from '../components/ChatPanel';
 import { QueuePanel } from '../components/QueuePanel';
@@ -123,7 +127,7 @@ export default function RoomPage() {
   const playingNow = !!gate.playback?.playing;
   useEffect(() => {
     const ms = navigator.mediaSession; if (!ms) return;
-    try { ms.playbackState = playingNow ? 'playing' : gate.playback ? 'paused' : 'none'; if (room && gate.playback) ms.metadata = new MediaMetadata({ title: title || room.name, artist: room.name, album: 'Our Space', artwork: [{ src: `https://i.ytimg.com/vi/${gate.playback.videoId}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' }] }); } catch { /* unsupported */ }
+    try { ms.playbackState = playingNow ? 'playing' : gate.playback ? 'paused' : 'none'; if (room && gate.playback) ms.metadata = new MediaMetadata({ title: title || room.name, artist: room.name, album: 'Our Space', artwork: [{ src: thumbnail(gate.playback.videoId), sizes: '320x180', type: 'image/jpeg' }] }); } catch { /* unsupported */ }
   }, [playingNow, title, room?.name, gate.playback?.videoId]);
   // The browser tab shows a dot when there are unread messages, so you notice from another tab.
   useEffect(() => { document.title = room ? `${unread ? '● ' : ''}${room.name} · Our Space` : 'Our Space'; return () => { document.title = 'Our Space'; }; }, [room?.name, unread]);
@@ -150,6 +154,9 @@ export default function RoomPage() {
   const [gameSeen, setGameSeen] = useState<string[]>([]);
   const [launch, setLaunch] = useState<{ game: 'scribble' | 'td'; key: number } | null>(null);
   const [liveIn, setLiveIn] = useState<object | null>(null);
+  // Which search box shows under the player (remembered on this computer).
+  const [source, setSourceState] = useState<'youtube' | 'apple'>(() => { try { return localStorage.getItem('os.search') === 'apple' ? 'apple' : 'youtube'; } catch { return 'youtube'; } });
+  const setSource = (v: 'youtube' | 'apple') => { setSourceState(v); try { localStorage.setItem('os.search', v); } catch { /* private mode */ } };
   const adWait = useRef('');
   const [nudge, setNudge] = useState(0);
   // The floating window closed: have the room's player redraw its picture (some laptops leave it black).
@@ -209,7 +216,9 @@ export default function RoomPage() {
   const next = () => { if (pb && room.queue?.length) void space.queue(code, 'next', { from: pb.videoId }).catch(fail); };
   const shareToChat = async (text: string) => { await chat.sendText(text); };
 
-  const playerEl = gate.playback ? <YouTubePlayer key={code} playback={gate.playback} volume={room.volume ?? 100} nudge={nudge} events={{
+  const appleNow = isApple(gate.playback?.videoId);
+  const Player = appleNow ? AppleMusicPlayer : YouTubePlayer;
+  const playerEl = gate.playback ? <Player key={appleNow ? `am-${code}` : code} playback={gate.playback} volume={room.volume ?? 100} nudge={nudge} events={{
           onTitle: (id, t) => { if (id === pb?.videoId) setTitle(t); },
           // Note when the time last moved: in a hidden tab YouTube reports less often, and a repeated old value
           // must not look fresh (the floating copy would keep jumping back and show only black while buffering).
@@ -225,7 +234,7 @@ export default function RoomPage() {
           },
           onUserControl: (action, at) => { if (!pb) return; if (gate.waiting) { if (action === 'play') gate.join(); return; } void space.play(code, pb.videoId, action === 'seek' ? pb.playing : action === 'play', at).catch(fail); },
         }} /> : null;
-  const floating = !!pip.slots && !!playerEl && !partyOn;
+  const floating = !!pip.slots && !!playerEl && !partyOn && !appleNow; // songs have no picture to float
   // The floating window shows a muted copy that follows the main player (which keeps playing the sound here).
   const mainTime = () => { const h = heard.current; if (!h) return null; const age = Date.now() - h.at; if (gate.playback?.playing && age > 3000) return null; return h.t + (gate.playback?.playing ? age / 1000 : 0); };
   // Until the floating copy is actually playing, the window shows the video's picture instead of black.
@@ -293,7 +302,7 @@ export default function RoomPage() {
   return <div className="room">{callChat}
     <RoomThemeLayer theme={theme} />
     <WorldLayer theme={theme} hasVideo={!!gate.playback} playing={!!gate.playback?.playing} members={room.members.length} chatCount={chat.items.length} lastMine={chat.items[chat.items.length - 1]?.from === space.user.id} />
-    {pb && <div className="ambient" aria-hidden="true"><img key={pb.videoId} src={`https://i.ytimg.com/vi/${pb.videoId}/mqdefault.jpg`} alt="" /></div>}
+    {pb && <div className="ambient" aria-hidden="true"><img key={pb.videoId} src={thumbnail(pb.videoId)} alt="" /></div>}
     {top}
     <section className="stage" aria-label="Watch together">
       {joinBar}
@@ -320,7 +329,7 @@ export default function RoomPage() {
       </div>}
       {floating && pb && createPortal(<div className="pip-player">
         {pipPlayer}
-        <img className={`pip-poster ${pipLive ? 'gone' : ''}`} src={`https://i.ytimg.com/vi/${pb.videoId}/hqdefault.jpg`} alt="" aria-hidden="true" />
+        <img className={`pip-poster ${pipLive ? 'gone' : ''}`} src={isApple(pb.videoId) ? thumbnail(pb.videoId) : `https://i.ytimg.com/vi/${pb.videoId}/hqdefault.jpg`} alt="" aria-hidden="true" />
         <div className="pip-controls">
           <IconButton size="sm" variant="accent" icon={gate.playback?.playing ? 'pause' : 'play'} label={gate.waiting ? 'Join in' : pb.playing ? 'Pause for everyone' : 'Play for everyone'} onClick={toggle} />
           <IconButton size="sm" icon="next" label="Skip to the next video" disabled={!room.queue?.length} onClick={next} />
@@ -331,7 +340,12 @@ export default function RoomPage() {
       </div>, pip.slots!.video)}
       {watch.party.invite && !watch.party.service && <PartyInvite invite={watch.party.invite} onJoin={() => pickService(watch.party.invite!.service, false)} onDismiss={watch.dismissInvite} />}
       <PartyCard party={watch.party} onToggle={watch.togglePlay} onResync={watch.resync} onEnd={() => watch.end()} />
-      <YouTubeSearch saved={space.playlists} onPlay={t => playNow(t)} onQueue={pb ? t => void space.queue(code, 'add', { videoId: t.videoId, title: t.title }).then(() => toast('Added to Up next', { icon: 'queue' })).catch(fail) : undefined} />
+      <div className="col gap-8">
+        <Segments label="Search in" value={source} onChange={setSource} options={[{ value: 'youtube', label: 'YouTube' }, { value: 'apple', label: 'Apple Music' }]} />
+        {source === 'youtube'
+          ? <YouTubeSearch saved={space.playlists} onPlay={t => playNow(t)} onQueue={pb ? t => void space.queue(code, 'add', { videoId: t.videoId, title: t.title }).then(() => toast('Added to Up next', { icon: 'queue' })).catch(fail) : undefined} />
+          : <AppleMusicSearch onPlay={t => playNow(t)} onQueue={pb ? t => void space.queue(code, 'add', { videoId: t.videoId, title: t.title }).then(() => toast('Added to Up next', { icon: 'queue' })).catch(fail) : undefined} />}
+      </div>
       {!watch.party.service && <StreamTiles onPick={s => pickService(s)} />}
       {others.length === 0 && <InviteCard room={room} />}
       {installFor && <InstallSheet service={installFor.service} onClose={() => setInstallFor(null)} onDone={() => { const f = installFor; setInstallFor(null); beginParty(f.service, f.host, false); }} />}
