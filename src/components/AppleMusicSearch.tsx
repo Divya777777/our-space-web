@@ -2,7 +2,7 @@
 // Searching needs no Apple sign-in (our server searches the catalogue); listening asks once, in the player.
 import { useEffect, useRef, useState } from 'react';
 import { useSpace } from '../lib/space';
-import { searchAppleMusic, useAppleMusic } from '../lib/appleMusic';
+import { connectAppleMusic, searchAppleMusic, useAppleMusic } from '../lib/appleMusic';
 import type { AppleSong } from '../lib/appleMusic';
 import type { Track } from '../lib/model';
 import { Icon } from './Icon';
@@ -43,6 +43,11 @@ export function AppleMusicSearch({ onPlay, onQueue, autoFocus }: { onPlay: (t: T
       <input autoFocus={autoFocus} aria-label="Search Apple Music" className="grow" style={{ background: 'none', border: 0, outline: 'none', height: '100%', fontSize: 15 }} placeholder="Search songs or artists on Apple Music" value={q} onChange={e => setQ(e.target.value)} />
       {busy ? <span className="spinner" style={{ marginRight: 12 }} /> : q && <IconButton size="sm" variant="plain" icon="x" label="Clear search" onClick={() => setQ('')} />}
     </label>
+    {am.server !== 'off' && !am.connected && <div className="row gap-8 wrap" style={{ padding: '10px 14px', borderRadius: 16, background: 'rgba(250,92,124,.08)', border: '1px solid rgba(250,92,124,.35)' }}>
+      <span className="grow small">Connect Apple Music once to hear songs. Searching works without it.</span>
+      <button type="button" className="btn primary sm" disabled={am.loading} onClick={() => void connectAppleMusic(space.api)}>Connect Apple Music</button>
+      {am.error && <span className="tiny" style={{ color: 'var(--danger, #ff6b6b)', width: '100%' }}>{am.error}</span>}
+    </div>}
     {!q && <p className="tiny muted" style={{ paddingLeft: 8 }}>{am.server === 'off' ? 'Apple Music isn’t switched on for this server yet.' : 'Everyone listens with their own Apple Music. Without a subscription you hear 30-second previews.'}</p>}
     {(results || error || (busy && !results)) && <div className="glass panel" style={{ padding: 6, maxHeight: 420, overflowY: 'auto' }}>
       {busy && !results && [0, 1, 2].map(i => <div key={i} style={{ padding: 8 }}><Skeleton h={44} /></div>)}

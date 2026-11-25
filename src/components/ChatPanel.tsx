@@ -411,7 +411,9 @@ function Message({ privateView = false, quick = QUICK, onMoreReact, showTime = t
       : item.kind === 'file' && item.file ? <a className="bubble row gap-8" href={url || undefined} download={item.file.name} style={{ color: 'inherit' }}><Icon name="file" size={18} /><span className="ellipsis" style={{ maxWidth: 200 }}>{item.file.name}</span><span className="tiny" style={{ opacity: .7 }}>{(item.file.size / 1e6).toFixed(1)} MB</span><span className="file-save"><Icon name="download" size={14} />Save</span></a>
         : <div className="bubble">{item.text}</div>;
   return <div ref={self} data-msg={item.id} className={`msg ${mine ? 'me' : ''} ${item.to?.length ? 'private' : ''} ${item.pending ? 'pending' : ''} ${item.failed ? 'failed' : ''} ${open || menu ? 'open' : ''}`}
-    onContextMenu={e => { if (!mine && !item.deleted) { e.preventDefault(); onReport(); } }} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
+    onContextMenu={e => { if (!mine && !item.deleted) { e.preventDefault(); onReport(); } }} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}
+    // Double-click (double-tap on a phone) replies, like the app. Not on buttons, links, photos or voice players.
+    onDoubleClick={e => { if (!actions.reply || (e.target as HTMLElement).closest('button, a, audio, video, input, .msg-photo')) return; e.preventDefault(); window.getSelection()?.removeAllRanges(); actions.reply(); }}>
     {(showName || privateLabel) && <span className="who">{showName && <>{online && <i className="online-dot inline" title="Online" />}{firstName(item.name)}</>}{privateLabel && <span className="pm-tag"><Icon name="lock" size={11} />{privateLabel}</span>}</span>}
     <div className="msg-main" style={dx ? { transform: `translateX(${mine ? -dx : dx}px)` } : undefined}>
       {dx > 0 && <span className="swipe-reply" style={{ opacity: Math.min(1, dx / 56) }}><Icon name="reply" size={16} /></span>}
