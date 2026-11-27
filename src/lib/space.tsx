@@ -47,6 +47,10 @@ const Context = createContext<Space | null>(null);
 const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 const nobody: Session = { id: '', name: '', token: '' };
 
+/** Room lists from older servers leave out message ticks and the chat cursor: keep what the open room already had. */
+function keepRoomDetails(prev: Room[], next: Room[]): Room[] {
+  return next.map(r => { const old = prev.find(o => o.code === r.code); return old && r.receipts === undefined && old.receipts ? { ...r, receipts: old.receipts, e2eCursor: r.e2eCursor || old.e2eCursor } : r; });
+}
 export function SpaceProvider({ children }: React.PropsWithChildren) {
   const [account, setAccount] = useState<Account | null>(() => loadAccount());
   const accountRef = useRef(account);
@@ -100,7 +104,7 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
     try { const raw = localStorage.getItem(cacheKey); if (raw) { const c = JSON.parse(raw); setRooms(c.rooms); setPlaylists(c.playlists); setSyncedFor(account.user.id); } } catch { /* no cache */ }
     const slow = setTimeout(() => { if (alive && !fresh) setWaking(true); }, 4000);
     Promise.all([request<Room[]>('/rooms'), request<Playlist[]>('/playlists')])
-      .then(([r, p]) => { if (!alive) return; fresh = true; setRooms(r); setPlaylists(p); setError(''); try { localStorage.setItem(cacheKey, JSON.stringify({ rooms: r, playlists: p })); } catch { /* full */ } })
+      .then(([r, p]) => { if (!alive) return; fresh = true; setRooms(prev => keepRoomDetails(prev, r)); setPlaylists(p); setError(''); try { localStorage.setItem(cacheKey, JSON.stringify({ rooms: r, playlists: p })); } catch { /* full */ } })
       .catch((e: Error) => { if (alive) setError(e.message); })
       .finally(() => { clearTimeout(slow); if (alive) { setSyncedFor(account.user.id); setWaking(false); } });
     void loadPlan();
@@ -164,7 +168,7 @@ export function SpaceProvider({ children }: React.PropsWithChildren) {
       setNeedsName(false);
     },
     async refresh() {
-      try { const [r, p] = await Promise.all([request<Room[]>('/rooms'), request<Playlist[]>('/playlists')]); setRooms(r); setPlaylists(p); setError(''); }
+      try { const [r, p] = await Promise.all([request<Room[]>('/rooms'), request<Playlist[]>('/playlists')]); setRooms(prev => keepRoomDetails(prev, r)); setPlaylists(p); setError(''); }
       catch (e) { setError((e as Error).message); }
     },
     async createRoom(name) {
