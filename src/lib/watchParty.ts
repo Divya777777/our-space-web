@@ -81,6 +81,9 @@ const env = import.meta.env as Record<string, string | undefined>;
 /** The published Chrome Web Store listing (Chrome, Edge, Brave, Opera install from here). */
 const CHROME_STORE_ID = 'piogabgjbabmafpglkdfhnjlmmofhlbl';
 export const EXTENSION_URL = (isFirefox ? (env.VITE_FIREFOX_EXTENSION_URL || 'https://addons.mozilla.org/firefox/addon/our-space-watch-together/') : env.VITE_EXTENSION_URL || `https://chromewebstore.google.com/detail/${CHROME_STORE_ID}`) || '';
+/** Safari on a Mac: the "Our Space for Safari" app on the Mac App Store (it carries the Safari extension). Empty until
+ *  that listing is live; Safari then keeps suggesting Chrome, Edge or Firefox. */
+export const SAFARI_URL = env.VITE_SAFARI_EXTENSION_URL || '';
 /** The test download for this browser (until the store listing is live). */
 export const TEST_ZIP = isFirefox ? 'ourspace-extension-firefox.zip' : 'ourspace-extension.zip';
 /** The store version's ID (once published) and the test version's fixed ID (from the key in extension/manifest.json). */

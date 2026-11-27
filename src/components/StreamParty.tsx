@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, IconButton, Sheet } from './ui';
 import { Icon } from './Icon';
-import { EXTENSION_URL, FEATURED, availability, Party, SERVICES, Service, TEST_ZIP, browserSupported, isDesktopSafari, isFirefox, showStreamTiles, clock, closeStore, extension, openStore, useExtension } from '../lib/watchParty';
+import { SAFARI_URL, EXTENSION_URL, FEATURED, availability, Party, SERVICES, Service, TEST_ZIP, browserSupported, isDesktopSafari, isFirefox, showStreamTiles, clock, closeStore, extension, openStore, useExtension } from '../lib/watchParty';
 
 function Mark({ service, size = 40 }: { service: Service; size?: number }) {
   // Our own tile mark (not the services' logos): the service name's first letters on its colour.
@@ -30,6 +30,22 @@ function SafariSheet({ name, onClose }: { name: string; onClose: () => void }) {
   </Sheet>;
 }
 
+/** Safari on a Mac, once "Our Space for Safari" is on the Mac App Store: install it, switch the extension on, allow it
+ *  on Our Space and the streaming site. The sheet moves on by itself as soon as Safari runs the extension here. */
+function SafariSetupSheet({ name, onClose }: { name: string; onClose: () => void }) {
+  return <Sheet title={`Set up ${name} in Safari`} sub="Only the first time" onClose={onClose}>
+    <p className="muted">{name} plays in sync through the small Our Space extension for Safari.</p>
+    <ol className="install-steps small">
+      <li>Get <b>Our Space for Safari</b> from the Mac App Store (free) and open it once.</li>
+      <li>In Safari, choose <b>Safari › Settings › Extensions</b> and tick <b>Our Space</b>.</li>
+      <li>When Safari asks, choose <b>Always Allow on These Websites</b> (or allow it on getourspace.com and {name}).</li>
+      <li>Come back to this tab. It carries on by itself.</li>
+    </ol>
+    <a className="btn primary" href={SAFARI_URL} target="_blank" rel="noreferrer">Get it on the Mac App Store</a>
+    <button className="btn ghost" onClick={onClose}>Not now</button>
+  </Sheet>;
+}
+
 export function StreamTiles({ onPick }: { onPick: (s: Service) => void }) {
   const [all, setAll] = useState(false);
   const list = all ? (Object.keys(SERVICES) as Service[]) : FEATURED;
@@ -37,7 +53,7 @@ export function StreamTiles({ onPick }: { onPick: (s: Service) => void }) {
   // Phones and tablets: streaming services need a computer here (or the phone app), so one quiet line instead of tiles.
   if (!showStreamTiles) return <p className="stream-note small muted"><Icon name="film" size={16} />Netflix, Prime Video and more play together on a computer, or in the Our Space phone app.</p>;
   return <section className="stream-tiles" aria-label="Watch a streaming service together">
-    <div className="row between"><p className="h3">Also watch together on</p><span className="tiny muted">Each of you uses your own account · {isDesktopSafari ? 'in Chrome, Edge or Firefox' : 'on a computer'}</span></div>
+    <div className="row between"><p className="h3">Also watch together on</p><span className="tiny muted">Each of you uses your own account · {isDesktopSafari && !SAFARI_URL ? 'in Chrome, Edge or Firefox' : 'on a computer'}</span></div>
     <div className="stream-row">
       {list.map(s => { const a = availability(s); return <button key={s} className={`stream-tile ${a.ok === 'no' ? 'off' : ''}`} style={{ ['--c' as string]: SERVICES[s].color, ['--g' as string]: SERVICES[s].glow }} onClick={() => onPick(s)} title={a.note || undefined}>
         <span className="stream-glow" aria-hidden="true" />
@@ -71,8 +87,10 @@ export function InstallSheet({ service, onDone, onClose }: { service: Service; o
   }, [installed, onDone]);
   const R = 54, C = 2 * Math.PI * R;
   const name = SERVICES[service].name;
-  if (isDesktopSafari) return <SafariSheet name={name} onClose={onClose} />;
-  if (!browserSupported) return <Sheet title={`${name} together`} sub="Works on a computer" onClose={onClose}>
+  // Safari: once the Safari extension is running here it works like any other browser; until then, set it up (or, before
+  // the Mac App Store listing exists, carry on in Chrome, Edge or Firefox).
+  if (isDesktopSafari && !installed) return SAFARI_URL ? <SafariSetupSheet name={name} onClose={onClose} /> : <SafariSheet name={name} onClose={onClose} />;
+  if (!browserSupported && !isDesktopSafari) return <Sheet title={`${name} together`} sub="Works on a computer" onClose={onClose}>
     <p className="muted">Watching {name} together works in Chrome, Edge, Brave, Opera or Firefox on a computer. On a phone, keep watching YouTube together in the app.</p>
     <Button onClick={onClose}>OK</Button>
   </Sheet>;

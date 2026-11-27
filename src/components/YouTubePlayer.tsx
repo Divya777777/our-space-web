@@ -158,6 +158,8 @@ export default function YouTubePlayer({ playback, volume = 100, events, follow, 
         if (playing) p.loadVideoById({ videoId, startSeconds: pos }); else { s.quietUntil = 0; s.cued = videoId; p.cueVideoById({ videoId, startSeconds: pos }); }
         return;
       }
+      // Finished, and the room's time is past the end (it hasn't heard yet): stay at the end, don't replay the last seconds.
+      if (ps === 0 && playing && p.getDuration && p.getDuration() > 0 && pos >= p.getDuration() - 1.5) return;
       if (!playing && (ps === -1 || ps === 5)) { if (s.cued !== videoId) { s.cued = videoId; p.cueVideoById({ videoId, startSeconds: pos }); } return; }
       s.cued = '';
       if (isMirror) {

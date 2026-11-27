@@ -224,7 +224,10 @@ export default function RoomPage() {
           // must not look fresh (the floating copy would keep jumping back and show only black while buffering).
           onPosition: s => { position.current = s; if (!heard.current || Math.abs(s - heard.current.t) > 0.01) heard.current = { t: s, at: Date.now() }; },
           onError: setPlayerError,
-          onEnded: id => { const key = `${id}:${pb?.revision}`; if (ended.current === key || !room.queue?.length) return; ended.current = key; void space.queue(code, 'next', { from: id }).catch(() => { ended.current = ''; }); },
+          onEnded: id => { const key = `${id}:${pb?.revision}`; if (ended.current === key) return; ended.current = key;
+            // Up next is empty: stop at the end for everyone (the room kept saying "playing", so players replayed the last seconds).
+            if (!room.queue?.length) { const cur = roomRef.current?.playback; if (cur?.videoId === id && cur.playing) void space.play(code, id, false, position.current || positionNow(cur)).catch(() => { ended.current = ''; }); return; }
+            void space.queue(code, 'next', { from: id }).catch(() => { ended.current = ''; }); },
           // A YouTube ad on this computer: the room waits (paused for everyone at this spot) and carries on together
           // when it ends or is skipped. Only resumes if the room is still waiting for us (nobody changed it meanwhile).
           onAd: (on, at) => {

@@ -23,6 +23,9 @@ export default function AppleMusicPlayer({ playback, volume = 100, events }: { p
   const intent = useRef<{ playing: boolean; position: number; at: number } | null>(null);
   const st = useRef({ expected: null as null | boolean, quietUntil: 0, loading: '' });
   const { videoId, playing, position, updatedAt, revision } = playback;
+  const playingRef = useRef(playing); useEffect(() => { playingRef.current = playing; });
+  // The song that just finished here: don't load it again while the room moves on to Up next.
+  const done = useRef('');
   const song = appleSong(videoId);
 
   useEffect(() => { lookupSongs(space.api, [videoId]); void loadMusicKit(space.api).catch(() => {}); }, [videoId, space.api]);
@@ -37,18 +40,42 @@ export default function AppleMusicPlayer({ playback, volume = 100, events }: { p
   useEffect(() => {
     const mk = musicKit(); if (!mk || !joined) return;
     const states = window.MusicKit?.PlaybackStates || {};
+    const id = appleCatalogId(videoId);
+    // Last thing heard from the player: when the last song in MusicKit's queue ends, nowPlayingItem is already gone,
+    // so "it was our song and it was near its end" is how we know it finished (then the room plays Up next).
+    const last = { id: '', time: 0, dur: 0, sent: false, idle: 0 };
+    const finished = () => { if (last.sent) return; last.sent = true; done.current = videoId; ev.current.onEnded?.(videoId); };
+    const nearEnd = () => last.id === id && last.dur > 0 && last.time > last.dur - 3;
     const onState = (e: { state?: number }) => {
-      if (e.state === states.completed || e.state === states.ended) { if (mk.nowPlayingItem?.id === appleCatalogId(videoId)) ev.current.onEnded?.(videoId); return; }
+      if (e.state === states.completed || e.state === states.ended || (e.state === states.stopped && nearEnd())) { if (mk.nowPlayingItem?.id === id || nearEnd()) finished(); return; }
       if (Date.now() < st.current.quietUntil) return;
       if (e.state === states.paused && st.current.expected !== false) { st.current.expected = false; user('pause', mk.currentPlaybackTime); }
       else if (e.state === states.playing && st.current.expected === false) { st.current.expected = true; user('play', mk.currentPlaybackTime); }
     };
     mk.addEventListener('playbackStateDidChange', onState);
-    const tick = setInterval(() => { const t = mk.currentPlaybackTime || 0; setTime(t); setDur(mk.currentPlaybackDuration || 0); ev.current.onPosition?.(t); }, 700);
+    const tick = setInterval(() => {
+      const t = mk.currentPlaybackTime || 0, d = mk.currentPlaybackDuration || 0, now = mk.nowPlayingItem?.id;
+      if (now === id) { last.id = id; if (t > 0) last.time = t; if (d > 0) last.dur = d; }
+      // Safety net: the room says playing, our song was at its end and the player has gone quiet for ~2 s.
+      if (playingRef.current && nearEnd() && !mk.isPlaying && Date.now() > st.current.quietUntil) { if (++last.idle >= 3) finished(); } else last.idle = 0;
+      setTime(t); setDur(d); ev.current.onPosition?.(t);
+    }, 700);
     return () => { mk.removeEventListener('playbackStateDidChange', onState); clearInterval(tick); };
   }, [joined, videoId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { const mk = musicKit(); if (mk && joined) mk.volume = Math.max(0, Math.min(1, volume / 100)); }, [volume, joined]);
+
+  // Start a song in one step: MusicKit loads it already at the right second and starts as soon as it can.
+  // (It used to load paused, then seek — a second buffering — then press play: 3–4 s before any sound.)
+  // Loading takes a moment, so it lands on where the room is *now*, not where it was when loading began.
+  async function startSong(mk: MusicKitInstance, id: string, state: Playback) {
+    const at = positionNow(state);
+    await mk.setQueue({ song: id, startPlaying: state.playing, ...(at > 1 ? { startTime: at } : {}) });
+    const now = positionNow(state);
+    if (Math.abs((mk.currentPlaybackTime || 0) - now) > 2) await mk.seekToTime(now);
+    if (state.playing && !mk.isPlaying) await mk.play();
+    else if (!state.playing && mk.isPlaying) mk.pause();
+  }
 
   // Follow the room.
   useEffect(() => {
@@ -66,11 +93,10 @@ export default function AppleMusicPlayer({ playback, volume = 100, events }: { p
       s.expected = playing;
       try {
         if (mk.nowPlayingItem?.id !== id) {
-          if (s.loading === id) return;
+          if (done.current === videoId && pos < 5) done.current = ''; // the room started it again from the top
+          if (s.loading === id || done.current === videoId) return;
           s.loading = id; s.quietUntil = Date.now() + 4000;
-          await mk.setQueue({ song: id, startPlaying: false });
-          if (pos > 1) await mk.seekToTime(pos);
-          if (playing) await mk.play();
+          await startSong(mk, id, state);
           s.loading = '';
           setNote(mk.previewOnly ? 'You’re hearing a preview. With an Apple Music subscription you hear the full song.' : '');
           return;
@@ -96,11 +122,9 @@ export default function AppleMusicPlayer({ playback, volume = 100, events }: { p
     setNote('');
     if (!am.connected) { await connectAppleMusic(space.api); return; }
     try {
-      const mk = await loadMusicKit(space.api), id = appleCatalogId(videoId), pos = positionNow(playback);
+      const mk = await loadMusicKit(space.api), id = appleCatalogId(videoId);
       st.current.loading = id; st.current.quietUntil = Date.now() + 4000; st.current.expected = playing;
-      await mk.setQueue({ song: id, startPlaying: false });
-      if (pos > 1) await mk.seekToTime(pos);
-      if (playing) await mk.play();
+      await startSong(mk, id, playback);
       setNote(mk.previewOnly ? 'You’re hearing a preview. With an Apple Music subscription you hear the full song.' : '');
       setJoined(true);
     } catch { ev.current.onError?.('Apple Music couldn’t play this song right now.'); }
