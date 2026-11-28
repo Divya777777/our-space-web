@@ -18,10 +18,14 @@ const dayLabel = (t: number) => { const d = new Date(t); const today = new Date(
 export type Chat = ReturnType<typeof useRoomChat>;
 type Status = 'sent' | 'delivered' | 'read';
 /** Like WhatsApp: one tick = reached the server, two grey = every other member has it, two blue = everyone has seen it. */
-function statusOf(id: number, others: string[], receipts: Receipts | undefined): Status {
-  if (!others.length || !receipts) return 'sent';
-  if (others.every(u => (receipts[u]?.r || 0) >= id)) return 'read';
-  if (others.every(u => (receipts[u]?.d || 0) >= id)) return 'delivered';
+function statusOf(id: number, others: string[], receipts: Receipts | undefined, to?: string[], me?: string): Status {
+  // A private message (group rooms) is only for `to`, and counts as seen when they read their private chat with you.
+  // Apps from before private read marks only send the shared one (`r`): use that for them.
+  const people = to?.length ? others.filter(u => to.includes(u)) : others;
+  if (!people.length || !receipts) return 'sent';
+  const seen = (u: string) => to?.length && me ? (receipts[u]?.p ? receipts[u]!.p![me] || 0 : receipts[u]?.r || 0) : receipts[u]?.r || 0;
+  if (people.every(u => seen(u) >= id)) return 'read';
+  if (people.every(u => (receipts[u]?.d || 0) >= id)) return 'delivered';
   return 'sent';
 }
 const STATUS_LABEL: Record<Status, string> = { sent: 'Sent', delivered: 'Delivered', read: 'Seen' };
@@ -55,12 +59,6 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   // Keep the newest message in view inside the panel (never scroll the whole page).
   // Seen ticks for the others: only while this tab is visible and focused.
   const { markRead, cursor } = chat;
-  useEffect(() => {
-    const check = () => { if (chat.loaded && document.visibilityState === 'visible' && document.hasFocus()) markRead(); };
-    check();
-    window.addEventListener('focus', check); document.addEventListener('visibilitychange', check);
-    return () => { window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check); };
-  }, [chat.loaded, cursor, markRead]);
   const others = room.members.map(m => m.id).filter(id => id !== space.user.id);
   // Everyone else in this room is someone you blocked: no messages either way until you unblock.
   const allBlocked = others.length > 0 && others.every(id => isBlockedId(blocked, id));
@@ -79,6 +77,14 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
   const seenKey = `ourspace.chatSeen.${room.code}`;
   const [seenAt, setSeenAt] = useState<Record<string, number>>(() => { try { const v = localStorage.getItem(seenKey); if (v) return JSON.parse(v); } catch { /* fine */ } return { '': Date.now(), first: Date.now() }; });
   const looking = pmTo ? privateTo! : '';
+  // Seen ticks for the others: only while this tab is visible and focused, and only for the chat on screen (a private
+  // chat marks only that chat as read).
+  useEffect(() => {
+    const check = () => { if (chat.loaded && document.visibilityState === 'visible' && document.hasFocus()) markRead(looking || undefined); };
+    check();
+    window.addEventListener('focus', check); document.addEventListener('visibilitychange', check);
+    return () => { window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check); };
+  }, [chat.loaded, cursor, markRead, looking]);
   useEffect(() => {
     const last = allItems.length ? allItems[allItems.length - 1].at : 0;
     if ((seenAt[looking] || 0) >= last || document.visibilityState !== 'visible') return;
@@ -304,7 +310,7 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
         const mine = i.from === space.user.id; const sent = !i.pending && !i.failed && /^\d+$/.test(i.id);
         return <div key={i.id} style={{ display: 'contents' }}>
           {showDay && <p className="tiny quiet" style={{ textAlign: 'center', margin: '10px 0 4px' }}>{day}</p>}
-          <Message item={i} quick={quick} onMoreReact={sent && !allBlocked && !i.deleted ? () => setReactFor(i) : undefined} showTime={showTime} starred={starred.has(i.id)} names={room.members} myId={space.user.id} online={online.has(i.from)} onReplyPrivately={canPrivate && !mine && !pmTo && reachable.some(m => m.id === i.from) ? () => openConvo(i.from) : undefined} privateView={!!pmTo} status={mine && sent ? statusOf(Number(i.id), others, room.receipts) : null} mine={mine} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)}
+          <Message item={i} quick={quick} onMoreReact={sent && !allBlocked && !i.deleted ? () => setReactFor(i) : undefined} showTime={showTime} starred={starred.has(i.id)} names={room.members} myId={space.user.id} online={online.has(i.from)} onReplyPrivately={canPrivate && !mine && !pmTo && reachable.some(m => m.id === i.from) ? () => openConvo(i.from) : undefined} privateView={!!pmTo} status={mine && sent ? statusOf(Number(i.id), others, room.receipts, i.to, space.user.id) : null} mine={mine} showName={showName} onReport={() => onReport(i.from, i.text || '')} onDismiss={() => chat.dismiss(i.id)}
             actions={sent && !allBlocked ? { react: e => react(i, e), reply: i.deleted ? undefined : () => startReply(i), edit: mine && !i.deleted && i.kind === 'text' ? () => startEdit(i) : undefined, deleteAll: mine && !i.deleted ? () => void deleteAll(i) : undefined, deleteMine: () => void deleteMine(i), star: i.deleted ? undefined : () => chat.toggleStar(i.id), quote: goTo, photo: (url, name) => setViewer({ url, name }) } : { deleteMine: i.pending ? undefined : () => void deleteMine(i), quote: goTo, photo: (url, name) => setViewer({ url, name }) }} />
         </div>;
       })}

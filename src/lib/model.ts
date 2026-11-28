@@ -6,7 +6,7 @@ export type Playback = { videoId: string; playing: boolean; position: number; up
 export type QueueItem = { id: string; videoId: string; title: string; source: 'manual' | 'playlist'; addedBy?: string;
   /** Apple Music songs ("am:<id>") carry their cover and artist. */ art?: string; artist?: string };
 /** Message status per member: `d` newest chat message their app downloaded, `r` newest one they have seen. */
-export type Receipts = Record<string, { d: number; r: number }>;
+export type Receipts = Record<string, { d: number; r: number; /** Private chats (group rooms): read mark per person. */ p?: Record<string, number> }>;
 /** A call going on in the room right now (who's in it), so people can join later. */
 export type LiveCall = { id: string; video: boolean; title: string; people: { id: string; name: string }[] };
 /** Live games on right now ("Kabir started Scribble · Join"). `players` = ids with the game open. */

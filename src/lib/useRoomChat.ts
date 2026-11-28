@@ -30,17 +30,21 @@ export function useRoomChat(room: Room | undefined) {
   const roomRef = useRef(room);
   useEffect(() => { roomRef.current = room; }, [room]);
   // Message status: tell the room how far this browser has downloaded (delivered) and seen (read) the chat.
-  const told = useRef({ d: 0, r: 0 });
-  const tell = useCallback((kind: 'd' | 'r') => {
+  // `p`: private chats (group rooms) have their own read mark per person (`peer`), so reading the shared chat doesn't
+  // count as having seen private messages, and the other way round.
+  const told = useRef<{ d: number; r: number; p: Record<string, number> }>({ d: 0, r: 0, p: {} });
+  const tell = useCallback((kind: 'd' | 'r', peer?: string) => {
     const cursor = ref.current.cursor;
-    if (!code || cursor <= told.current[kind]) return;
-    told.current = kind === 'r' ? { d: Math.max(told.current.d, cursor), r: cursor } : { ...told.current, d: cursor };
-    void space.api(`/rooms/${code}/e2e/receipt`, kind === 'r' ? { read: cursor } : { delivered: cursor }, 'POST')
-      .catch(() => { told.current = { d: 0, r: 0 }; });
+    const was = kind === 'd' ? told.current.d : peer ? told.current.p[peer] || 0 : told.current.r;
+    if (!code || cursor <= was) return;
+    const t = told.current;
+    told.current = kind === 'd' ? { ...t, d: cursor } : peer ? { ...t, d: Math.max(t.d, cursor), p: { ...t.p, [peer]: cursor } } : { ...t, d: Math.max(t.d, cursor), r: cursor };
+    void space.api(`/rooms/${code}/e2e/receipt`, kind === 'r' ? { read: cursor, ...(peer ? { peer } : {}) } : { delivered: cursor }, 'POST')
+      .catch(() => { told.current = { d: 0, r: 0, p: {} }; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
-  /** Call while the chat is on screen: everything downloaded so far counts as seen. */
-  const markRead = useCallback(() => tell('r'), [tell]);
+  /** Call while the chat is on screen: everything downloaded so far counts as seen (in that private chat, if `peer`). */
+  const markRead = useCallback((peer?: string) => tell('r', peer), [tell]);
   const commit = useCallback((next: ChatState) => {
     if (loadedScope.current !== `${userId}/${code}`) return;
     ref.current = next; setState(next);
