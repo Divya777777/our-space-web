@@ -41,6 +41,23 @@ jobs:
           VITE_SAFARI_EXTENSION_URL: ${{ vars.VITE_SAFARI_EXTENSION_URL }}
       # GitHub Pages has no rewrites: serve the app for every path (room links, /join?code=…).
       - run: cp dist/index.html dist/404.html && touch dist/.nojekyll
+      # Invite links (getourspace.com/j/CODE) open the phone app directly when it's installed. These two files prove the
+      # site belongs to the app. Set the repo variables APPLE_TEAM_ID (developer.apple.com → Membership) and
+      # ANDROID_CERT_SHA256 (Play Console → App integrity → App signing key SHA-256; add the upload key too,
+      # comma-separated). Without them the links still work through the page.
+      - name: App links (.well-known)
+        run: |
+          mkdir -p dist/.well-known
+          if [ -n "$TEAM" ]; then
+            printf '{"applinks":{"details":[{"appIDs":["%s.com.ourspacestream.mobile"],"components":[{"/":"/j/*","comment":"Room invites"}]}]}}\n' "$TEAM" > dist/.well-known/apple-app-site-association
+          fi
+          if [ -n "$SHA" ]; then
+            python3 -c 'import json,os;print(json.dumps([{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"com.ourspace.mobile","sha256_cert_fingerprints":[s.strip().upper() for s in os.environ["SHA"].split(",") if s.strip()]}}]))' > dist/.well-known/assetlinks.json
+          fi
+          ls -la dist/.well-known
+        env:
+          TEAM: ${{ vars.APPLE_TEAM_ID }}
+          SHA: ${{ vars.ANDROID_CERT_SHA256 }}
       # SEO: save the rendered front page into index.html (Google, Bing and link previews read real text), add FAQ
       # data, copy privacy/terms/support onto this domain and write sitemap.xml. Never blocks a deploy.
       - name: Prerender front page for search engines

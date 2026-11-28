@@ -81,8 +81,8 @@ html.app-full .mo-pile { display: none; }
 .mo-snap { width: 100%; max-width: 1080px; display: flex; flex-wrap: wrap; border-radius: var(--r-window); overflow: hidden; background: var(--glass-strong); border: 1px solid var(--edge); box-shadow: var(--depth); animation: mo-in .25s var(--ease); }
 .mo-snap-main { flex: 999 1 480px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
 .mo-snap-side { flex: 1 1 320px; min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 18px; background: rgba(10,13,26,.55); border-left: 1px solid rgba(255,255,255,.06); }
-.mo-snap-frame { position: relative; aspect-ratio: 4 / 3; border-radius: 22px; overflow: hidden; background: #05070E; }
-.mo-snap-frame video, .mo-snap-frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mo-snap-frame { position: relative; aspect-ratio: 1; width: min(100%, 62vh); margin-inline: auto; border-radius: 22px; overflow: hidden; background: #05070E; }
+.mo-snap-frame video, .mo-snap-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mo-snap-frame .mirror { transform: scaleX(-1); }
 .mo-count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 120px; font-weight: 300; color: var(--text); text-shadow: 0 4px 30px rgba(0,0,0,.6); }
 .mo-snap-controls { display: flex; align-items: center; justify-content: center; gap: 28px; min-height: 72px; }

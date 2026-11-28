@@ -21,12 +21,12 @@ type Phase = 'idle' | 'incoming' | 'outgoing' | 'connecting' | 'connected' | 're
 type Candidate = RTCIceCandidateInit;
 type Description = RTCSessionDescriptionInit;
 type ActiveCall = { id: string; code: string; video: boolean; title: string; starter: CallPeer; members: CallPeer[]; offer?: Description; mine: boolean };
-type Peer = { id: string; name: string; pc: RTCPeerConnection; stream: MediaStream | null; channel: RTCDataChannel | null; sender: RTCRtpSender | null; state: 'connecting' | 'connected' | 'reconnecting'; cameraOff: boolean; /** Showing their screen instead of their camera. */ screen: boolean; muted: boolean; out: { ready: boolean; queue: Candidate[]; timer?: ReturnType<typeof setTimeout> };
+type Peer = { id: string; name: string; pc: RTCPeerConnection; stream: MediaStream | null; channel: RTCDataChannel | null; sender: RTCRtpSender | null; state: 'connecting' | 'connected' | 'reconnecting'; cameraOff: boolean; /** On hold (they took a normal phone call). */ held?: boolean; /** Showing their screen instead of their camera. */ screen: boolean; muted: boolean; out: { ready: boolean; queue: Candidate[]; timer?: ReturnType<typeof setTimeout> };
   /** 2 or more: this person's app can repair a dropped connection in place (it says so on the data channel). Older apps stay 0 and behave as before. */ caps: number;
   /** Was connected at least once. */ live: boolean; /** Their picture and sound are arriving badly right now. */ weak: boolean; /** How this link actually connected: 'relay' (through the TURN relay) or 'direct'. */ via?: 'relay' | 'direct';
   upload: UploadQuality;
   fix: { timer?: ReturnType<typeof setTimeout>; tries: number }; net: { lost: number; got: number; freezes: number; score: number; calm: number; target: number } };
-type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; state: Peer['state']; weak: boolean; screen?: boolean };
+type PeerView = { id: string; name: string; stream: MediaStream | null; cameraOff: boolean; muted: boolean; state: Peer['state']; weak: boolean; screen?: boolean; /** They took a normal phone call (phone app): on hold. */ held?: boolean };
 /** Messages for features riding on the call (Netflix / Prime watch party): sent to everyone on the call over the
  * peer-to-peer data channel. Phones ignore what they don't know. */
 export type PartyMessage = { w: 'party' } & Record<string, unknown>;
@@ -160,7 +160,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
 
   const transition = (next: Phase) => { phaseRef.current = next; setPhase(next); };
   const select = (next: ActiveCall | null) => { callRef.current = next; setCall(next); };
-  const refresh = () => setPeerList([...peers.current.values()].map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted, state: p.state, weak: p.weak, screen: p.screen })));
+  const refresh = () => setPeerList([...peers.current.values()].map(p => ({ id: p.id, name: p.name, stream: p.stream, cameraOff: p.cameraOff, muted: p.muted, state: p.state, weak: p.weak, screen: p.screen, held: !!p.held })));
   const sendTo = (to: string, type: CallSignal['type'], payload: Record<string, unknown> = {}, target = callRef.current) => target ? latest.current.signalCall(target.code, to, type, { ...payload, callId: target.id }) : Promise.resolve();
   function flush(peer: Peer) {
     clearTimeout(peer.out.timer); peer.out.timer = undefined;
@@ -220,7 +220,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   function attach(peer: Peer, ch: RTCDataChannel) {
     peer.channel = ch;
     ch.onopen = () => shareMedia(ch);
-    ch.onmessage = e => { if (peer.channel !== ch) return; try { const s = JSON.parse(String(e.data)); if (s && s.w === 'party') { partyListeners.forEach(fn => { try { fn(s as PartyMessage, { id: peer.id, name: peer.name }); } catch { /* listener error */ } }); return; } if (typeof s.v === 'number') peer.caps = s.v; if (typeof s.cameraOff === 'boolean') peer.cameraOff = s.cameraOff; peer.screen = s.screen === true; if (typeof s.muted === 'boolean') peer.muted = s.muted; refresh(); } catch { /* ignore */ } };
+    ch.onmessage = e => { if (peer.channel !== ch) return; try { const s = JSON.parse(String(e.data)); if (s && s.w === 'party') { partyListeners.forEach(fn => { try { fn(s as PartyMessage, { id: peer.id, name: peer.name }); } catch { /* listener error */ } }); return; } if (typeof s.v === 'number') peer.caps = s.v; peer.held = s.held === true; if (typeof s.cameraOff === 'boolean') peer.cameraOff = s.cameraOff; peer.screen = s.screen === true; if (typeof s.muted === 'boolean') peer.muted = s.muted; refresh(); } catch { /* ignore */ } };
   }
   async function prepare(target: ActiveCall) {
     // Ask for the relay servers while the camera and microphone start, not after them.
@@ -261,7 +261,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   }
   function createPeer(person: CallPeer, target: ActiveCall, { offerer, ready }: { offerer: boolean; ready: boolean }) {
     removePeer(person.id);
-    const pc = new RTCPeerConnection({ iceServers: ice.current || [], iceCandidatePoolSize: 2 });
+    const pc = new RTCPeerConnection({ iceServers: ice.current || [], iceCandidatePoolSize: 2, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
     const peer: Peer = { id: person.id, name: person.name, pc, stream: null, channel: null, sender: null, state: 'connecting', cameraOff: !target.video, screen: false, muted: false, out: { ready, queue: [] }, caps: 0, live: false, weak: false, upload: newUploadQuality(), fix: { tries: 0 }, net: { lost: 0, got: 0, freezes: 0, score: 0, calm: 0, target: VIDEO_BUFFER } };
     peers.current.set(person.id, peer);
     const media = stream.current!;
@@ -808,7 +808,8 @@ export function CallProvider({ children }: React.PropsWithChildren) {
   // Leaving the call closes the floating video too.
   useEffect(() => { if (!call && document.pictureInPictureElement === floatSrc.current) void document.exitPictureInPicture().catch(() => {}); }, [call]);
   const group = (call?.members.length || 0) > 1 || others.length > 1;
-  const clock = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
+  // 1:30:05 after an hour (it used to say 90:05).
+  const clock = `${elapsed >= 3600 ? `${Math.floor(elapsed / 3600)}:` : ''}${String(Math.floor(elapsed / 60) % (elapsed >= 3600 ? 60 : 1e9)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
   const status = phase === 'incoming' ? (group ? `${firstName(call?.starter.name || '')} is calling the room` : `Incoming ${call?.video ? 'video' : 'voice'} call`)
     : phase === 'outgoing' ? 'Ringing…' : phase === 'connecting' ? 'Connecting…' : phase === 'reconnecting' ? 'Reconnecting…' : group ? `${others.filter(p => p.state === 'connected').length + 1} in call · ${clock}` : clock;
   const controls = <>
@@ -843,6 +844,7 @@ export function CallProvider({ children }: React.PropsWithChildren) {
         <div className="grow"><p className="h3">{group ? call.title : others[0]?.name || call.title}</p><p className="small muted">{!group && others[0]?.muted && connected ? 'Muted · ' : ''}{status}</p></div>
         {error && <span className="small rose">{error}</span>}
         {!error && selfWeak && connected && <span className="small muted net-hint"><i />Your connection is weak</span>}
+        {connected && peerList.some(p => p.held) && <span className="small net-hint held-hint"><i />{peerList.filter(p => p.held).map(p => firstName(p.name)).join(', ')} put the call on hold</span>}
         {sharing && <span className="presenting"><i /><span>You’re presenting{sharing.sound ? ' with sound' : ''}</span><button onClick={() => stopShare()}><Icon name="x" size={14} />Stop</button></span>}
         {fullscreenSupported && <IconButton icon={fullOn ? 'collapse' : 'expand'} label={fullOn ? 'Exit full screen' : 'Full screen'} onClick={() => void toggleFullscreen()} />}
         {connected && others.length >= 2 && <div className="layout-seg" role="group" aria-label="Layout">

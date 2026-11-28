@@ -268,6 +268,8 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
         <span className="grow" />
         <IconButton size="sm" variant="plain" icon="image" label="Media: photos, files and voice messages" onClick={() => setSheet('media')} />
         <IconButton size="sm" variant="plain" icon="star" label="Starred messages" onClick={() => setSheet('starred')} />
+        {/* Copy your chats from the phone app (QR code): always here, so nobody has to scroll to the top of the chat. */}
+        {!pmTo && <IconButton size="sm" variant="plain" icon="qr" label="Bring older chats from your phone (QR code)" onClick={() => setLinking(true)} />}
         {picker && <div className="convo-menu" role="listbox" aria-label="Who to chat with">
           <button role="option" aria-selected={!pmTo} className={!pmTo ? 'on' : ''} onClick={() => openConvo(null)}>
             <Avatar name={room.name} size={36} /><span className="grow"><b>Room chat</b><span className="tiny muted">Everyone in {room.name} sees these messages</span></span>
@@ -355,8 +357,9 @@ export function ChatPanel({ room, chat, onReport, compact }: { room: Room; chat:
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void (editing ? saveEdit() : send()); } else if (e.key === 'Escape' && (editing || replyTo)) { e.preventDefault(); if (editing) setText(''); setEditing(null); setReplyTo(null); } }} onPaste={onPaste} />
         <button className={`emoji-toggle ${emojiOpen ? 'on' : ''}`} onClick={() => setEmojiOpen(o => !o)} aria-label="Emoji and GIFs" title="Emoji and GIFs"><Icon name="smile" size={19} /></button>
       </div>
-      {idle && !progress ? <IconButton icon="mic" variant="accent" label="Record a voice message" onClick={() => void voice.start()} />
-        : <IconButton icon={editing ? 'check' : 'send'} variant="accent" label={editing ? 'Save the edit' : 'Send message'} onClick={() => void (editing ? saveEdit() : send())} disabled={(!text.trim() && !staged.length) || !!progress} />}
+      {/* The voice button stays put; send appears beside it while there's something to send. */}
+      {!idle && <IconButton icon={editing ? 'check' : 'send'} variant="accent" label={editing ? 'Save the edit' : 'Send message'} onClick={() => void (editing ? saveEdit() : send())} disabled={(!text.trim() && !staged.length) || !!progress} />}
+      {!editing && <IconButton icon="mic" variant={idle ? 'accent' : undefined} label="Record a voice message" onClick={() => void voice.start()} disabled={!!progress} />}
       </>}
     </div></>}
   </div>;

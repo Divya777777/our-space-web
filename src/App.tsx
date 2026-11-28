@@ -17,6 +17,7 @@ import Library from './pages/Library';
 import You from './pages/You';
 import RoomPage from './pages/Room';
 import Join from './pages/Join';
+import Invite from './pages/Invite';
 
 export default function App() {
   return <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
@@ -27,6 +28,8 @@ export default function App() {
 function Gate() {
   const space = useSpace();
   const location = useLocation();
+  // Invite links work signed in or not: they pick the app, the store or the website by themselves.
+  if (location.pathname.startsWith('/j/')) return <Routes><Route path="/j/:code" element={<Invite />} /></Routes>;
   if (!space.signedIn) {
     // The front page explains Our Space; "Log in" leads to /signin. Every other link (an invite, a room) goes
     // straight to sign-in and comes back to where it pointed afterwards.

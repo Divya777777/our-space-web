@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Room } from '../lib/model';
 import { useSpace } from '../lib/space';
-import { inviteMessage, webJoinLink } from '../lib/invite';
+import { inviteLink, inviteMessage } from '../lib/invite';
 import { REPORT_REASONS, blockUser, isBlockedId, reportUser, unblockUser, useBlocked } from '../lib/safety';
 import { useCall } from './Call';
 import { Avatar, Button, IconButton, Notice, Sheet, copyText, firstName, useConfirm, useToast } from './ui';
@@ -72,7 +72,7 @@ export function InviteCard({ room, quiet }: { room: Room; quiet?: boolean }) {
     <button className="row between" onClick={async () => { if (await copyText(room.code)) toast('Code copied.', { icon: 'copy' }); }} style={{ padding: '12px 16px', borderRadius: 14, background: 'rgba(5,8,18,.45)', border: '1px solid var(--edge)' }}>
       <span style={{ fontSize: 24, letterSpacing: '.3em', fontWeight: 600 }}>{room.code}</span><Icon name="copy" />
     </button>
-    <div className="row gap-8 wrap"><Button icon="share" onClick={() => void share()}>Send an invite</Button><Button variant="secondary" icon="link" onClick={async () => { if (await copyText(webJoinLink(room.code))) toast('Link copied.', { icon: 'link' }); }}>Copy link</Button></div>
+    <div className="row gap-8 wrap"><Button icon="share" onClick={() => void share()}>Send an invite</Button><Button variant="secondary" icon="link" onClick={async () => { if (await copyText(inviteLink(room.code))) toast('Link copied.', { icon: 'link' }); }}>Copy link</Button></div>
   </div>;
 }
 

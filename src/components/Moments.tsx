@@ -135,7 +135,7 @@ export function MomentViewer({ moments, startId, onClose, onSnapBack }: { moment
     <button className="mo-arrow" onClick={() => go(-1)} disabled={index === 0} aria-label="Previous moment"><Icon name="back" size={22} /></button>
 
     <div className="mo-stage">
-      <div className="mo-card" onMouseDown={() => setPaused(true)} onMouseUp={() => setPaused(false)} onMouseLeave={() => setPaused(false)}>
+      <div className="mo-card" style={cardShape(meta)} onMouseDown={() => setPaused(true)} onMouseUp={() => setPaused(false)} onMouseLeave={() => setPaused(false)}>
         {(photo || m.thumbUrl) && <img className="mo-photo-bg" src={photo?.url || m.thumbUrl || ''} alt="" aria-hidden="true" />}
         {photo ? <img className="mo-photo" src={photo.url} alt={meta?.caption || `${m.from.name}'s moment`} />
           : m.thumbUrl ? <img className="mo-photo blur" src={m.thumbUrl} alt="" />
@@ -220,6 +220,14 @@ function CommentsPanel({ moments, m, onClose }: { moments: MomentsApi; m: Moment
   </aside>;
 }
 
+/** The viewer card takes the moment's own shape (square for new moments, 3:4 for older ones), so it shows
+ *  edge to edge with no blurred bands, and still fits the window. */
+function cardShape(meta?: MomentMeta): React.CSSProperties | undefined {
+  if (!meta?.w || !meta?.h) return undefined;
+  const r = Math.min(4 / 3, Math.max(3 / 4, meta.w / meta.h));
+  return { aspectRatio: String(r), width: `min(100%, calc((100vh - 230px) * ${r.toFixed(4)}))`, marginInline: 'auto' };
+}
+
 /* ───────── Snap (webcam + filters) ───────── */
 async function blobToImg(blob: Blob, maxW: number, maxH: number): Promise<Img> {
   const bmp = await createImageBitmap(blob);
@@ -269,8 +277,10 @@ export function MomentCapture({ moments, onClose, onShared }: { moments: Moments
 
   const capture = () => {
     const el = video.current; if (!el?.videoWidth) return;
-    const c = document.createElement('canvas'); c.width = el.videoWidth; c.height = el.videoHeight;
-    const g = c.getContext('2d')!; if (mirror) { g.translate(c.width, 0); g.scale(-1, 1); } g.drawImage(el, 0, 0);
+    // Keep the centre square (what the square frame shows), the same shape as the phone widget.
+    const side = Math.min(el.videoWidth, el.videoHeight), sx = (el.videoWidth - side) / 2, sy = (el.videoHeight - side) / 2;
+    const c = document.createElement('canvas'); c.width = side; c.height = side;
+    const g = c.getContext('2d')!; if (mirror) { g.translate(c.width, 0); g.scale(-1, 1); } g.drawImage(el, sx, sy, side, side, 0, 0, side, side);
     c.toBlob(b => { if (b) setShot(b); }, 'image/jpeg', 0.95);
   };
   const take = () => {
